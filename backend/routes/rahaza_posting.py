@@ -1330,7 +1330,7 @@ async def post_bank_recon_adjustment(db, adjustment: dict, user: dict) -> dict:
     # Determine accounts based on adjustment_type
     if adjustment_type == "bank_charge":
         mapping = await get_mapping(db, "bank_recon_charge")
-        debit_code = mapping.get("debit_bank_charges") or "6-2500"
+        debit_code = mapping.get("debit_bank_charges") or "6-4100"  # Biaya Bank & Admin Bank
         credit_code = mapping.get("credit_bank") or bank_account_code
     elif adjustment_type == "interest_income":
         mapping = await get_mapping(db, "bank_recon_interest")
@@ -1338,7 +1338,7 @@ async def post_bank_recon_adjustment(db, adjustment: dict, user: dict) -> dict:
         credit_code = mapping.get("credit_interest_income") or "4-2100"
     elif adjustment_type == "service_fee":
         mapping = await get_mapping(db, "bank_recon_service_fee")
-        debit_code = mapping.get("debit_service_fee") or "6-2501"
+        debit_code = mapping.get("debit_service_fee") or "6-4101"  # Biaya Layanan Bank
         credit_code = mapping.get("credit_bank") or bank_account_code
     else:  # correction or other
         # Use custom accounts if provided

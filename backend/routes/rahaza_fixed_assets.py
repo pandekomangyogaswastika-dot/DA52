@@ -260,6 +260,34 @@ async def fixed_assets_summary(request: Request):
     }
 
 
+@router.get("/fixed-assets/depreciation-summary")
+async def get_depreciation_summary(request: Request, period: Optional[str] = None):
+    """
+    Phase 8B: Summary depreciation per period atau all-time.
+    IMPORTANT: This route must be BEFORE /{aid} to avoid route conflict.
+    """
+    await require_auth(request)
+    db = get_db()
+    if not period:
+        period = date.today().strftime("%Y-%m")
+    pipe = [
+        {"$match": {"period": period, "posted": True}},
+        {"$group": {"_id": None, "total_depr": {"$sum": "$depr_amount"}, "count": {"$sum": 1}}}
+    ]
+    agg = await db.rahaza_depr_schedules.aggregate(pipe).to_list(1)
+    total_depr = round((agg[0]["total_depr"] if agg else 0), 2)
+    count = (agg[0]["count"] if agg else 0)
+    assets_active = await db.rahaza_fixed_assets.count_documents({"status": "active"})
+    assets_disposed = await db.rahaza_fixed_assets.count_documents({"status": "disposed"})
+    return {
+        "period": period,
+        "total_depreciation": total_depr,
+        "assets_count": count,
+        "assets_active": assets_active,
+        "assets_disposed": assets_disposed,
+    }
+
+
 @router.get("/fixed-assets/{aid}")
 async def get_fixed_asset(aid: str, request: Request):
     await require_auth(request)
@@ -612,42 +640,4 @@ async def run_batch_depreciation(request: Request):
     }
 
 
-@router.get("/fixed-assets/depreciation-summary")
-async def get_depreciation_summary(request: Request, period: Optional[str] = None):
-    """
-    Phase 8B: Summary depreciation per period atau all-time.
-    
-    Query params:
-    - period: YYYY-MM (optional, default: current month)
-    """
-    await require_auth(request)
-    db = get_db()
-    
-    if not period:
-        period = date.today().strftime("%Y-%m")
-    
-    # Aggregate total depreciation for the period
-    pipe = [
-        {"$match": {"period": period, "posted": True}},
-        {"$group": {
-            "_id": None,
-            "total_depr": {"$sum": "$depr_amount"},
-            "count": {"$sum": 1}
-        }}
-    ]
-    
-    agg = await db.rahaza_depr_schedules.aggregate(pipe).to_list(1)
-    total_depr = round((agg[0]["total_depr"] if agg else 0), 2)
-    count = (agg[0]["count"] if agg else 0)
-    
-    # Get assets summary
-    assets_active = await db.rahaza_fixed_assets.count_documents({"status": "active"})
-    assets_disposed = await db.rahaza_fixed_assets.count_documents({"status": "disposed"})
-    
-    return {
-        "period": period,
-        "total_depreciation": total_depr,
-        "assets_count": count,
-        "assets_active": assets_active,
-        "assets_disposed": assets_disposed,
-    }
+# NOTE: GET /fixed-assets/depreciation-summary is defined above (before /{aid}) to avoid route conflict.

@@ -60,6 +60,7 @@ async def _gen_number(db, coll, prefix):
 
 
 # ── COST CENTERS ─────────────────────────────────────────────────────────────
+
 @router.get("/cost-centers")
 async def list_cost_centers(request: Request, active_only: bool = True):
     await require_auth(request)
@@ -155,8 +156,8 @@ async def create_ar(request: Request):
     subtotal = 0
     norm_items = []
     for it in items:
-        qty = float(it.get("qty") or 0)
-        price = float(it.get("price") or 0)
+        qty = float(it.get("qty") or it.get("quantity") or 0)
+        price = float(it.get("price") or it.get("unit_price") or 0)
         amount = qty * price
         subtotal += amount
         norm_items.append({"description": it.get("description") or "", "qty": qty, "unit": it.get("unit") or "pcs", "price": price, "amount": round(amount)})
@@ -521,8 +522,8 @@ async def create_ap(request: Request):
     subtotal = 0
     norm = []
     for it in items:
-        qty = float(it.get("qty") or 0)
-        price = float(it.get("price") or 0)
+        qty = float(it.get("qty") or it.get("quantity") or 0)
+        price = float(it.get("price") or it.get("unit_price") or 0)
         amt = qty * price
         subtotal += amt
         norm.append({"description": it.get("description") or "", "qty": qty, "unit": it.get("unit") or "", "price": price, "amount": round(amt)})

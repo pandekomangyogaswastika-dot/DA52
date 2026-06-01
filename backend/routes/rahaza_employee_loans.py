@@ -73,7 +73,7 @@ async def disburse_employee_loan(request: Request):
         raise HTTPException(400, "installment_amount dan installment_count harus > 0")
     
     # Validate employee exists
-    employee = await db.employees.find_one({"id": employee_id}, {"_id": 0})
+    employee = await db.rahaza_employees.find_one({"id": employee_id}, {"_id": 0})
     if not employee:
         raise HTTPException(404, "Employee tidak ditemukan")
     

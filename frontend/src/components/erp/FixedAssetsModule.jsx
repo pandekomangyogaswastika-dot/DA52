@@ -85,7 +85,7 @@ export default function FixedAssetsModule({ token }) {
   useEffect(() => { fetchSummary(); fetchDeprDue(); }, []); // eslint-disable-line
 
   const fetchCoa = async () => {
-    const r = await fetch('/api/rahaza/finance/accounts?active_only=true', { headers });
+    const r = await fetch('/api/rahaza/coa/accounts?active_only=false', { headers });
     if (r.ok) setCoa(await r.json());
   };
 

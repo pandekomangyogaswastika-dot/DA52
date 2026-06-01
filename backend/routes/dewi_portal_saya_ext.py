@@ -276,6 +276,98 @@ async def get_given_feedback(request: Request):
     return ok(data=serialize(feedbacks), meta={"total": len(feedbacks)})
 
 
+# ═══════════════════════════════════════════════════════════════════════
+#  ME/* ENDPOINTS — Digunakan oleh PortalSayaCuti.jsx & PortalSayaPayslip.jsx
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.get("/me/employee")
+async def get_my_employee_record(request: Request):
+    """Get employee record linked to the current logged-in user."""
+    user = await require_auth(request)
+    db = get_db()
+    emp = await _get_my_employee(db, user)
+    if not emp:
+        raise HTTPException(404, "Akun belum terhubung ke data karyawan. Hubungi HR Admin.")
+    return serialize(emp)
+
+
+@router.get("/me/leaves")
+async def get_my_leaves(
+    request: Request,
+    limit: int = 50,
+    status: str = "",
+):
+    """Get leave requests for the current logged-in employee."""
+    user = await require_auth(request)
+    db = get_db()
+    emp = await _get_my_employee(db, user)
+    if not emp:
+        raise HTTPException(404, "Akun belum terhubung ke data karyawan.")
+    emp_id = emp.get("id") or emp.get("employee_code")
+
+    q = {"employee_id": emp_id}
+    if status:
+        q["status"] = status
+
+    items = await db.rahaza_leaves.find(q, {"_id": 0})\
+        .sort("created_at", -1).limit(limit).to_list(limit)
+
+    return {"items": serialize(items), "total": len(items)}
+
+
+@router.get("/me/leave-balance")
+async def get_my_leave_balance(request: Request):
+    """Get leave balance for the current logged-in employee."""
+    user = await require_auth(request)
+    db = get_db()
+    emp = await _get_my_employee(db, user)
+    if not emp:
+        raise HTTPException(404, "Akun belum terhubung ke data karyawan.")
+    emp_id = emp.get("id") or emp.get("employee_code")
+
+    # Get leave types
+    leave_types = await db.rahaza_leave_types.find({}, {"_id": 0}).to_list(50)
+    type_map = {lt["id"]: lt for lt in leave_types}
+
+    # Get leave balances for this employee
+    balances = await db.rahaza_leave_balances.find(
+        {"employee_id": emp_id}, {"_id": 0}
+    ).to_list(50)
+
+    # Enrich with leave type info
+    enriched = []
+    for b in balances:
+        lt = type_map.get(b.get("leave_type_id"), {})
+        enriched.append({
+            **b,
+            "leave_type_name": lt.get("name", b.get("leave_type_id", "")),
+            "leave_type_color": lt.get("color", "#6366f1"),
+        })
+
+    return {"balances": serialize(enriched), "employee_id": emp_id}
+
+
+@router.get("/me/payslips")
+async def get_my_payslips(
+    request: Request,
+    limit: int = 12,
+):
+    """Get payslips for the current logged-in employee."""
+    user = await require_auth(request)
+    db = get_db()
+    emp = await _get_my_employee(db, user)
+    if not emp:
+        raise HTTPException(409, "Akun belum terhubung ke data karyawan.")
+    emp_id = emp.get("id") or emp.get("employee_code")
+
+    # Find payslips from rahaza_payroll_payslips collection
+    payslips = await db.rahaza_payroll_payslips.find(
+        {"employee_id": emp_id}, {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+
+    return {"payslips": serialize(payslips), "total": len(payslips)}
+
+
 @router.post("/peer-feedback")
 async def submit_peer_feedback(payload: PeerFeedbackIn, request: Request):
     """P2-15: Submit peer feedback."""

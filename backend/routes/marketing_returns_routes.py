@@ -257,6 +257,26 @@ async def list_returns(
         }
     }
 
+@router.get("/credit-notes")
+async def list_credit_notes_alias(request: Request):
+    """List all credit notes — MOVED here to avoid /{return_id} conflict."""
+    await require_auth(request)
+    db = get_db()
+    cns = await db.rahaza_credit_notes.find({}, {"_id": 0}).sort("issue_date", -1).to_list(500)
+    return {"success": True, "data": serialize(cns)}
+
+
+@router.get("/credit-notes/{cn_id}")
+async def get_credit_note_alias(cn_id: str, request: Request):
+    """Get credit note detail — MOVED here to avoid /{return_id} conflict."""
+    await require_auth(request)
+    db = get_db()
+    cn = await db.rahaza_credit_notes.find_one({"id": cn_id}, {"_id": 0})
+    if not cn:
+        raise HTTPException(404, "Credit note not found")
+    return {"success": True, "data": serialize(cn)}
+
+
 @router.get("/{return_id}")
 async def get_return(return_id: str, request: Request):
     await require_auth(request)
@@ -531,25 +551,6 @@ async def retry_post_credit_note(cn_id: str, request: Request):
     return {"success": True, "data": serialize(final_cn)}
 
 
-@router.get("/credit-notes")
-async def list_credit_notes(request: Request):
-    """List all credit notes"""
-    await require_auth(request)
-    db = get_db()
-    
-    cns = await db.rahaza_credit_notes.find({}, {"_id": 0}).sort("issue_date", -1).to_list(500)
-    return {"success": True, "data": serialize(cns)}
-
-
-@router.get("/credit-notes/{cn_id}")
-async def get_credit_note(cn_id: str, request: Request):
-    """Get credit note detail"""
-    await require_auth(request)
-    db = get_db()
-    
-    cn = await db.rahaza_credit_notes.find_one({"id": cn_id}, {"_id": 0})
-    if not cn:
-        raise HTTPException(404, "Credit note not found")
-    
-    return {"success": True, "data": serialize(cn)}
+# NOTE: /credit-notes and /credit-notes/{cn_id} GET routes are defined ABOVE
+# (before /{return_id}) to avoid route conflict. See lines ~260-280.
 

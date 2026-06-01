@@ -67,8 +67,8 @@ export default function BudgetModule({ token }) {
 
   const fetchMeta = async () => {
     const [ccRes, coaRes] = await Promise.all([
-      fetch('/api/rahaza/finance/cost-centers', { headers }),
-      fetch('/api/rahaza/finance/accounts?active_only=true', { headers }),
+      fetch('/api/rahaza/cost-centers', { headers }),
+      fetch('/api/rahaza/coa/accounts?active_only=false', { headers }),
     ]);
     if (ccRes.ok) setCostCenters(await ccRes.json());
     if (coaRes.ok) setCoa(await coaRes.json());

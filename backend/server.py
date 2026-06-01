@@ -1748,6 +1748,143 @@ app.include_router(petty_cash_router)
 from routes.rahaza_bank_transfers import router as bank_transfers_router
 app.include_router(bank_transfers_router)
 
+
+# ─── Financial Recap Endpoint ────────────────────────────────────────────────
+# Re-implements the deleted /api/financial-recap for FinancialRecapModule.jsx
+from datetime import date as _date, timedelta
+from dateutil.relativedelta import relativedelta
+
+@app.get("/api/financial-recap", tags=["financial-recap"])
+async def financial_recap(
+    date_from: str = "",
+    date_to: str = "",
+):
+    """
+    Aggregated financial snapshot used by FinancialRecapModule.jsx.
+    Sources: rahaza_ar_invoices, rahaza_ap_invoices, rahaza_ar_payments, rahaza_ap_payments
+    """
+    db = get_db()
+    today = _date.today()
+
+    # Default: last 30 days
+    if not date_from:
+        date_from = (today - timedelta(days=30)).isoformat()
+    if not date_to:
+        date_to = today.isoformat()
+
+    # Build filters
+    date_filter = {"$gte": date_from, "$lte": date_to}
+
+    # AR invoices (sales)
+    ar_pipeline = [
+        {"$match": {"issue_date": date_filter, "status": {"$ne": "cancelled"}}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}, "count": {"$sum": 1}}}
+    ]
+    ar_agg = await db.rahaza_ar_invoices.aggregate(ar_pipeline).to_list(1)
+    total_sales = ar_agg[0]["total"] if ar_agg else 0
+    total_ar_invoices = ar_agg[0]["count"] if ar_agg else 0
+
+    # AP invoices (vendor cost)
+    ap_pipeline = [
+        {"$match": {"issue_date": date_filter, "status": {"$ne": "cancelled"}}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}, "count": {"$sum": 1}}}
+    ]
+    ap_agg = await db.rahaza_ap_invoices.aggregate(ap_pipeline).to_list(1)
+    total_vendor = ap_agg[0]["total"] if ap_agg else 0
+    total_ap_invoices = ap_agg[0]["count"] if ap_agg else 0
+
+    # Cash In (AR payments)
+    ci_pipeline = [
+        {"$match": {"payment_date": date_filter}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+    ]
+    ci_agg = await db.rahaza_ar_payments.aggregate(ci_pipeline).to_list(1)
+    total_cash_in = ci_agg[0]["total"] if ci_agg else 0
+
+    # Cash Out (AP payments)
+    co_pipeline = [
+        {"$match": {"payment_date": date_filter}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+    ]
+    co_agg = await db.rahaza_ap_payments.aggregate(co_pipeline).to_list(1)
+    total_cash_out = co_agg[0]["total"] if co_agg else 0
+
+    # AR outstanding (all unpaid AR invoices)
+    ar_out_pipeline = [
+        {"$match": {"status": {"$in": ["unpaid", "partial", "overdue"]}}},
+        {"$group": {"_id": None, "total": {"$sum": "$outstanding_amount"}}}
+    ]
+    ar_out_agg = await db.rahaza_ar_invoices.aggregate(ar_out_pipeline).to_list(1)
+    ar_outstanding = ar_out_agg[0]["total"] if ar_out_agg else 0
+
+    # AP outstanding
+    ap_out_pipeline = [
+        {"$match": {"status": {"$in": ["unpaid", "partial", "overdue"]}}},
+        {"$group": {"_id": None, "total": {"$sum": "$outstanding_amount"}}}
+    ]
+    ap_out_agg = await db.rahaza_ap_invoices.aggregate(ap_out_pipeline).to_list(1)
+    ap_outstanding = ap_out_agg[0]["total"] if ap_out_agg else 0
+
+    # Gross margin
+    gross_margin = total_sales - total_vendor
+    gross_margin_pct = round((gross_margin / total_sales * 100), 1) if total_sales > 0 else 0
+
+    # Monthly trend (last 6 months)
+    monthly_trend = []
+    for i in range(5, -1, -1):
+        m_date = today - relativedelta(months=i)
+        m_str = m_date.strftime("%Y-%m")
+        m_label = m_date.strftime("%b %Y")
+        m_start = f"{m_str}-01"
+        m_end = (m_date + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d")
+        m_filter = {"$gte": m_start, "$lte": m_end}
+
+        m_ar = await db.rahaza_ar_invoices.aggregate([
+            {"$match": {"issue_date": m_filter, "status": {"$ne": "cancelled"}}},
+            {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
+        ]).to_list(1)
+        m_ap = await db.rahaza_ap_invoices.aggregate([
+            {"$match": {"issue_date": m_filter, "status": {"$ne": "cancelled"}}},
+            {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
+        ]).to_list(1)
+        m_ci = await db.rahaza_ar_payments.aggregate([
+            {"$match": {"payment_date": m_filter}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+        ]).to_list(1)
+        m_co = await db.rahaza_ap_payments.aggregate([
+            {"$match": {"payment_date": m_filter}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+        ]).to_list(1)
+
+        ms = m_ar[0]["total"] if m_ar else 0
+        mc = m_ap[0]["total"] if m_ap else 0
+        monthly_trend.append({
+            "month": m_label,
+            "sales": ms,
+            "cost": mc,
+            "margin": ms - mc,
+            "cash_in": m_ci[0]["total"] if m_ci else 0,
+            "cash_out": m_co[0]["total"] if m_co else 0,
+        })
+
+    return {
+        "total_sales_value": total_sales,
+        "total_vendor_cost": total_vendor,
+        "total_buyer_invoices": total_ar_invoices,
+        "total_vendor_invoices": total_ap_invoices,
+        "total_cash_in": total_cash_in,
+        "total_cash_out": total_cash_out,
+        "total_adjustments": 0,
+        "accounts_receivable_outstanding": ar_outstanding,
+        "accounts_payable_outstanding": ap_outstanding,
+        "gross_margin": gross_margin,
+        "gross_margin_pct": gross_margin_pct,
+        "monthly_trend": monthly_trend,
+        "garment_summary": [],
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+
 # ─── API v1 PATH REWRITER MIDDLEWARE ────────────────────────────────────────
 # E-6/E-7: Provides /api/v1/* aliases for the legacy per-module paths.
 from middleware.api_v1 import APIv1PathRewriteMiddleware

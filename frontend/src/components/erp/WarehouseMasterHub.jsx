@@ -29,7 +29,7 @@ export default function WarehouseMasterHub({ token }) {
       })
       .catch(() => {});
 
-    fetch('/api/dewi/fg/inventory?limit=1', { headers: h })
+    fetch('/api/rahaza/fg-issues?limit=1', { headers: h })
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (!d) return;
