@@ -1,26 +1,34 @@
 [
   {
-    "content": "Tambah endpoint download backup as ZIP",
+    "content": "Impact Analysis: Trace all references to 'Master Produk', 'Models', 'rahaza_models' (yang akan di-rename ke DA Catalogue)",
     "status": "completed"
   },
   {
-    "content": "Tambah endpoint upload ZIP for restore",
+    "content": "Impact Analysis: Trace existing Maklon PO/Sample/BOM/HPP/Billing/Quote — yang akan integrate dengan Buyer Catalog",
     "status": "completed"
   },
   {
-    "content": "Tambah endpoint list collections in backup",
+    "content": "Impact Analysis: Cek potensi conflict naming 'DA Catalogue' vs 'Marketing Catalog' existing",
     "status": "completed"
   },
   {
-    "content": "Tambah selective restore dengan merge/overwrite mode",
-    "status": "completed"
+    "content": "Sajikan Impact Analysis Report + opsi mitigasi → tunggu approval user",
+    "status": "in_progress"
   },
   {
-    "content": "Update frontend UI untuk advanced features",
-    "status": "completed"
+    "content": "Implement Phase 1: Backend dewi_maklon_buyer_catalog routes (CRUD + auto-fill helper)",
+    "status": "pending"
   },
   {
-    "content": "Testing download/upload/selective restore",
-    "status": "completed"
+    "content": "Implement Phase 1: Frontend MaklonBuyerCatalogModule + integrasi ke MaklonPOModule (product picker)",
+    "status": "pending"
+  },
+  {
+    "content": "Implement Phase 1: Rename 'Master Produk & BOM' → 'DA Catalogue' (label only, collection tetap)",
+    "status": "pending"
+  },
+  {
+    "content": "Test backend + frontend (testing agent)",
+    "status": "pending"
   }
 ]
