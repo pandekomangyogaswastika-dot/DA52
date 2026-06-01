@@ -1,30 +1,26 @@
 [
   {
-    "content": "Buat manual backup script (backup.sh & restore.sh)",
+    "content": "Tambah endpoint download backup as ZIP",
     "status": "completed"
   },
   {
-    "content": "Buat backend API endpoints untuk backup management",
+    "content": "Tambah endpoint upload ZIP for restore",
     "status": "completed"
   },
   {
-    "content": "Buat frontend BackupRestoreModule.jsx dengan UI lengkap",
+    "content": "Tambah endpoint list collections in backup",
     "status": "completed"
   },
   {
-    "content": "Setup APScheduler automated backup job",
+    "content": "Tambah selective restore dengan merge/overwrite mode",
     "status": "completed"
   },
   {
-    "content": "Integration dengan notification system",
+    "content": "Update frontend UI untuk advanced features",
     "status": "completed"
   },
   {
-    "content": "Register module di moduleRegistry & portalNav",
-    "status": "completed"
-  },
-  {
-    "content": "Testing backup/restore functionality",
+    "content": "Testing download/upload/selective restore",
     "status": "completed"
   }
 ]

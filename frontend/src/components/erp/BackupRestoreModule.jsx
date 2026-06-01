@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Database, Download, Trash2, RefreshCw, AlertTriangle, CheckCircle2, Clock, HardDrive, Calendar } from 'lucide-react';
+import { Database, Download, Trash2, RefreshCw, AlertTriangle, CheckCircle2, Clock, HardDrive, Calendar, Upload, FileUp, CheckSquare, Square } from 'lucide-react';
 import { GlassCard } from '@/components/ui/glass';
 import { Button } from '@/components/ui/button';
 import { PageHeader, StatTile } from './moduleAtoms';
 import { useToast } from '@/hooks/use-toast';
+import { downloadBackup, uploadBackup, listCollections, restoreSelective } from './backupRestoreHelpers';
 
 const fmt = (n) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
 const formatDate = (isoStr) => {
@@ -18,6 +19,11 @@ export default function BackupRestoreModule({ token }) {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
   const [restoreTarget, setRestoreTarget] = useState(null);
+  const [selectiveRestore, setSelectiveRestore] = useState(null);
+  const [collections, setCollections] = useState([]);
+  const [selectedCollections, setSelectedCollections] = useState([]);
+  const [restoreMode, setRestoreMode] = useState('overwrite');
+  const [uploadFile, setUploadFile] = useState(null);
   const { toast } = useToast();
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -149,6 +155,85 @@ export default function BackupRestoreModule({ token }) {
     }
   };
 
+  const handleDownload = async (backup) => {
+    setProcessing(backup.backup_id);
+    toast({ title: 'Downloading...', description: `Mengunduh ${backup.backup_name}.zip` });
+    const result = await downloadBackup(backup.backup_id, token);
+    setProcessing(null);
+    if (result.ok) {
+      toast({ title: 'Sukses', description: 'Backup berhasil diunduh' });
+    } else {
+      toast({ title: 'Error', description: result.error || 'Download gagal', variant: 'destructive' });
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!uploadFile) {
+      toast({ title: 'Error', description: 'Pilih file ZIP terlebih dahulu', variant: 'destructive' });
+      return;
+    }
+    setProcessing('upload');
+    toast({ title: 'Uploading...', description: `Mengupload ${uploadFile.name}` });
+    const result = await uploadBackup(uploadFile, token);
+    setProcessing(null);
+    setUploadFile(null);
+    if (result.ok) {
+      toast({ title: 'Sukses', description: `Backup ${result.backup_name} berhasil diupload` });
+      fetchBackups();
+    } else {
+      toast({ title: 'Error', description: result.error || 'Upload gagal', variant: 'destructive' });
+    }
+  };
+
+  const openSelectiveRestore = async (backup) => {
+    setProcessing(backup.backup_id);
+    const result = await listCollections(backup.backup_id, token);
+    setProcessing(null);
+    if (result.error) {
+      toast({ title: 'Error', description: result.error, variant: 'destructive' });
+      return;
+    }
+    setCollections(result.collections || []);
+    setSelectedCollections([]);
+    setRestoreMode('overwrite');
+    setSelectiveRestore(backup);
+  };
+
+  const toggleCollection = (collectionName) => {
+    setSelectedCollections(prev =>
+      prev.includes(collectionName)
+        ? prev.filter(c => c !== collectionName)
+        : [...prev, collectionName]
+    );
+  };
+
+  const selectAllCollections = () => {
+    setSelectedCollections(collections.map(c => c.name));
+  };
+
+  const clearSelections = () => {
+    setSelectedCollections([]);
+  };
+
+  const confirmSelectiveRestore = async () => {
+    if (selectedCollections.length === 0) {
+      toast({ title: 'Error', description: 'Pilih minimal 1 collection', variant: 'destructive' });
+      return;
+    }
+    setProcessing('selective-restore');
+    const result = await restoreSelective(selectiveRestore.backup_id, selectedCollections, restoreMode, token);
+    setProcessing(null);
+    if (result.ok) {
+      toast({
+        title: 'Restore Selesai',
+        description: `${result.total_restored}/${result.total_requested} collections berhasil di-restore`
+      });
+      setSelectiveRestore(null);
+    } else {
+      toast({ title: 'Error', description: result.error || 'Restore gagal', variant: 'destructive' });
+    }
+  };
+
   const latestBackup = backups[0];
   const totalSize = backups.reduce((sum, b) => {
     const sizeStr = b.size || '0';
@@ -165,6 +250,35 @@ export default function BackupRestoreModule({ token }) {
         subtitle="Kelola backup database untuk disaster recovery. Backup otomatis berjalan setiap hari jam 02:00 WIB."
         actions={
           <>
+            <input
+              type="file"
+              accept=".zip"
+              onChange={e => setUploadFile(e.target.files[0])}
+              style={{ display: 'none' }}
+              id="backup-upload-input"
+            />
+            {uploadFile && (
+              <Button
+                variant="outline"
+                onClick={handleUpload}
+                className="h-9 border-emerald-500/50 text-emerald-300"
+                disabled={processing === 'upload'}
+                data-testid="backup-upload-confirm"
+              >
+                <Upload className="w-3.5 h-3.5 mr-1.5" />
+                {processing === 'upload' ? 'Uploading...' : `Upload ${uploadFile.name.slice(0, 15)}...`}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => document.getElementById('backup-upload-input').click()}
+              className="h-9 border border-[var(--glass-border)]"
+              data-testid="backup-upload"
+              disabled={processing === 'upload'}
+            >
+              <FileUp className="w-3.5 h-3.5 mr-1.5" />
+              Upload ZIP
+            </Button>
             <Button
               variant="ghost"
               onClick={fetchBackups}
@@ -269,13 +383,36 @@ export default function BackupRestoreModule({ token }) {
                 <div className="flex gap-2 flex-shrink-0">
                   <Button
                     size="sm"
+                    variant="ghost"
+                    onClick={() => handleDownload(backup)}
+                    disabled={processing === backup.backup_id}
+                    className="text-blue-300 hover:text-blue-200 hover:bg-blue-500/10"
+                    data-testid={`backup-download-${backup.backup_id}`}
+                    title="Download as ZIP"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openSelectiveRestore(backup)}
+                    disabled={processing === backup.backup_id}
+                    data-testid={`backup-selective-${backup.backup_id}`}
+                    title="Selective Restore"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5 mr-1" />
+                    Pilih
+                  </Button>
+                  <Button
+                    size="sm"
                     variant="default"
                     onClick={() => setRestoreTarget(backup)}
                     disabled={processing === 'restore'}
                     data-testid={`backup-restore-${backup.backup_id}`}
+                    title="Full Restore"
                   >
                     <Download className="w-3.5 h-3.5 mr-1" />
-                    Restore
+                    Restore All
                   </Button>
                   <Button
                     size="sm"
@@ -366,6 +503,123 @@ export default function BackupRestoreModule({ token }) {
                   <>
                     <Download className="w-4 h-4 mr-2" />
                     Konfirmasi Restore
+                  </>
+                )}
+              </Button>
+            </div>
+          </GlassCard>
+        </div>
+      )}
+
+      {selectiveRestore && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSelectiveRestore(null)}>
+          <GlassCard className="p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()} data-testid="selective-restore-dialog">
+            <h2 className="text-xl font-bold text-foreground mb-4">Selective Restore: {selectiveRestore.backup_name}</h2>
+            
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-4">
+              <div className="text-sm">
+                <div className="font-semibold mb-2">Pilih collection yang ingin di-restore:</div>
+                <div className="flex gap-3 mb-2">
+                  <Button size="sm" variant="outline" onClick={selectAllCollections} data-testid="select-all-collections">
+                    Pilih Semua ({collections.length})
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={clearSelections}>
+                    Clear ({selectedCollections.length} selected)
+                  </Button>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Selected: {selectedCollections.length} / {collections.length} collections
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="text-sm font-semibold text-foreground mb-2 block">Restore Mode:</label>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setRestoreMode('overwrite')}
+                  className={`flex-1 p-3 rounded-lg border text-left transition ${
+                    restoreMode === 'overwrite'
+                      ? 'border-primary bg-primary/10'
+                      : 'border-[var(--glass-border)] hover:border-primary/50'
+                  }`}
+                  data-testid="mode-overwrite"
+                >
+                  <div className="font-semibold text-sm">Overwrite (Drop & Restore)</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Hapus collection yang ada, lalu restore dari backup (default)
+                  </div>
+                </button>
+                <button
+                  onClick={() => setRestoreMode('merge')}
+                  className={`flex-1 p-3 rounded-lg border text-left transition ${
+                    restoreMode === 'merge'
+                      ? 'border-emerald-500 bg-emerald-500/10'
+                      : 'border-[var(--glass-border)] hover:border-emerald-500/50'
+                  }`}
+                  data-testid="mode-merge"
+                >
+                  <div className="font-semibold text-sm">Merge (Insert Only)</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Tambahkan data dari backup tanpa menghapus data existing
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div className="border border-[var(--glass-border)] rounded-lg p-4 max-h-96 overflow-y-auto">
+              <div className="space-y-2">
+                {collections.map(collection => (
+                  <div
+                    key={collection.name}
+                    onClick={() => toggleCollection(collection.name)}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${
+                      selectedCollections.includes(collection.name)
+                        ? 'border-primary bg-primary/10'
+                        : 'border-[var(--glass-border)] hover:border-primary/30'
+                    }`}
+                    data-testid={`collection-${collection.name}`}
+                  >
+                    {selectedCollections.includes(collection.name) ? (
+                      <CheckSquare className="w-5 h-5 text-primary flex-shrink-0" />
+                    ) : (
+                      <Square className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-sm font-semibold truncate">{collection.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {collection.document_count} docs · {collection.size_mb} MB
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end mt-6">
+              <Button
+                variant="ghost"
+                onClick={() => setSelectiveRestore(null)}
+                className="border border-[var(--glass-border)]"
+                data-testid="selective-cancel"
+                disabled={processing === 'selective-restore'}
+              >
+                Batal
+              </Button>
+              <Button
+                onClick={confirmSelectiveRestore}
+                disabled={processing === 'selective-restore' || selectedCollections.length === 0}
+                data-testid="selective-confirm"
+              >
+                {processing === 'selective-restore' ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Restoring...
+                  </>
+                ) : (
+                  <>
+                    <CheckSquare className="w-4 h-4 mr-2" />
+                    Restore {selectedCollections.length} Collections ({restoreMode})
                   </>
                 )}
               </Button>
