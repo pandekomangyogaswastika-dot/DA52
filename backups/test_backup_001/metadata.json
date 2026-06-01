@@ -1,0 +1,9 @@
+{
+  "backup_name": "test_backup_001",
+  "timestamp": "20260601_125613",
+  "created_at": "2026-06-01T12:56:14+00:00",
+  "size": "1.5M",
+  "mongo_uri": "mongodb://localhost:27017",
+  "database": "erp_database",
+  "status": "success"
+}

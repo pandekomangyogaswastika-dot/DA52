@@ -1,26 +1,30 @@
 [
   {
-    "content": "Buat 8 komponen React frontend modules",
+    "content": "Buat manual backup script (backup.sh & restore.sh)",
     "status": "completed"
   },
   {
-    "content": "Register 7 modul baru di moduleRegistry.js (1 sudah ada)",
+    "content": "Buat backend API endpoints untuk backup management",
     "status": "completed"
   },
   {
-    "content": "Add navigation entries di portalNav.js untuk 7 modul baru",
+    "content": "Buat frontend BackupRestoreModule.jsx dengan UI lengkap",
     "status": "completed"
   },
   {
-    "content": "Frontend compilation check (esbuild)",
+    "content": "Setup APScheduler automated backup job",
     "status": "completed"
   },
   {
-    "content": "Testing via screenshot tool untuk verify UI",
+    "content": "Integration dengan notification system",
     "status": "completed"
   },
   {
-    "content": "Call testing agent untuk comprehensive validation",
+    "content": "Register module di moduleRegistry & portalNav",
+    "status": "completed"
+  },
+  {
+    "content": "Testing backup/restore functionality",
     "status": "completed"
   }
 ]

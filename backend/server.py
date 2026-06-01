@@ -1748,6 +1748,10 @@ app.include_router(petty_cash_router)
 from routes.rahaza_bank_transfers import router as bank_transfers_router
 app.include_router(bank_transfers_router)
 
+# ─── Admin Backup & Restore Management ───────────────────────────────────────
+from routes.admin_backup import router as admin_backup_router
+app.include_router(admin_backup_router)
+
 
 # ─── Financial Recap Endpoint ────────────────────────────────────────────────
 # Re-implements the deleted /api/financial-recap for FinancialRecapModule.jsx

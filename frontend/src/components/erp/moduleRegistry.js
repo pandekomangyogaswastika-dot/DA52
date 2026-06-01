@@ -89,6 +89,9 @@ const PurchaseDiscountModule = lazy(() => import('./PurchaseDiscountModule'));
 const EmployeeLoansModule = lazy(() => import('./EmployeeLoansModule'));
 const InventoryScrapModule = lazy(() => import('./InventoryScrapModule'));
 
+// Backup & Restore System - Added 2026-06-01
+const BackupRestoreModule = lazy(() => import('./BackupRestoreModule'));
+
 const WHReturnsModule  = lazy(() => import('./WHReturnsModule'));
 const CMTPackingModule = lazy(() => import('./CMTPackingModule'));
 // Task 2.5: Production Material Returns
@@ -668,6 +671,9 @@ export const MODULE_REGISTRY = {
 
   // Warehouse · Phase B — Inventory Adjustments
   'wh-inventory-adjustments':  InventoryScrapModule,
+
+  // Management · System Administration
+  'mgmt-backup-restore':       BackupRestoreModule,
 
   // Session 13 — SLA Dashboard, Management Tools, Smart Warehouse
   // Phase 3.3A Batch 2: maklon-sla-dashboard konsolidasi ke maklon-dashboard sebagai tab

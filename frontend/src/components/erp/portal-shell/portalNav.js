@@ -111,6 +111,7 @@ export const PORTAL_NAV = {
           { id: 'mgmt-company',      label: 'Pengaturan Perusahaan', icon: Building2 },
           { id: 'mgmt-pdf',          label: 'Konfigurasi PDF',       icon: FileCog },
           { id: 'mgmt-integrations', label: 'Integrasi & API Keys',  icon: Zap },
+          { id: 'mgmt-backup-restore', label: 'Database Backup & Restore', icon: Database, badge: 'BARU' },
           { id: 'mgmt-help',         label: 'Panduan Penggunaan',    icon: BookOpen },
         ],
       },

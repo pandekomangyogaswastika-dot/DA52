@@ -879,6 +879,83 @@ async def job_leave_carry_forward():
         logger.exception(f"[scheduler] job_leave_carry_forward error: {e}")
 
 
+async def job_auto_database_backup():
+    """Automated daily database backup at 02:00 Asia/Jakarta"""
+    import subprocess
+    import asyncio
+    from pathlib import Path
+    from datetime import datetime
+    
+    db = get_db()
+    started = datetime.now(timezone.utc)
+    backup_name = f"auto_{started.strftime('%Y%m%d_%H%M%S')}"
+    
+    logger.info(f"[scheduler] job_auto_database_backup: Starting backup '{backup_name}'")
+    
+    try:
+        # Run backup script
+        process = await asyncio.create_subprocess_exec(
+            '/app/scripts/backup.sh',
+            backup_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode == 0:
+            logger.info(f"[scheduler] job_auto_database_backup: Backup '{backup_name}' completed successfully")
+            
+            # Send notification to all superadmins
+            try:
+                from routes.rahaza_notifications import send_notification
+                superadmins = await db.users.find({"role": "superadmin"}).to_list(length=100)
+                for admin in superadmins:
+                    await send_notification(
+                        user_id=admin["id"],
+                        title="✅ Auto Backup Berhasil",
+                        message=f"Database backup otomatis '{backup_name}' telah dibuat dengan sukses",
+                        type="success",
+                        category="system"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to send backup notification: {e}")
+            
+            # Cleanup old backups (retention: 30 days)
+            try:
+                cleanup_process = await asyncio.create_subprocess_exec(
+                    '/app/scripts/cleanup_old_backups.sh',
+                    '30',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await cleanup_process.communicate()
+                logger.info("[scheduler] job_auto_database_backup: Cleanup old backups completed")
+            except Exception as e:
+                logger.warning(f"Backup cleanup failed: {e}")
+            
+        else:
+            error_msg = stderr.decode()
+            logger.error(f"[scheduler] job_auto_database_backup: Backup failed - {error_msg}")
+            
+            # Send error notification to superadmins
+            try:
+                from routes.rahaza_notifications import send_notification
+                superadmins = await db.users.find({"role": "superadmin"}).to_list(length=100)
+                for admin in superadmins:
+                    await send_notification(
+                        user_id=admin["id"],
+                        title="❌ Auto Backup Gagal",
+                        message=f"Database backup otomatis '{backup_name}' gagal: {error_msg[:200]}",
+                        type="error",
+                        category="system"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to send error notification: {e}")
+                
+    except Exception as e:
+        logger.error(f"[scheduler] job_auto_database_backup: Exception - {str(e)}")
+
+
 JOB_REGISTRY = {
     'scan_overdue_invoices': {
         'fn': job_scan_overdue_invoices,
@@ -933,6 +1010,12 @@ JOB_REGISTRY = {
         'description': 'Carry-forward saldo cuti tahunan ke tahun berikutnya setiap 1 Januari.',
         'cron': {'month': 1, 'day': 1, 'hour': 1, 'minute': 0},
         'cron_label': 'Setiap 1 Januari pukul 01:00',
+    },
+    'auto_database_backup': {
+        'fn': job_auto_database_backup,
+        'description': 'Automated daily database backup with 30-day retention policy.',
+        'cron': {'hour': 2, 'minute': 0},
+        'cron_label': 'Setiap hari pukul 02:00',
     },
 }
 
