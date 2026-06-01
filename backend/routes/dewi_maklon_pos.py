@@ -19,6 +19,13 @@ from datetime import datetime, timezone, date
 from database import get_db
 from auth import require_auth, serialize_doc, log_activity
 from utils.counters import next_counter
+# Phase M2.3: Price drift thresholds (synced with dewi_maklon_buyer_catalog)
+from routes.dewi_maklon_buyer_catalog import (
+    PRICE_DRIFT_WARN_PCT,
+    PRICE_DRIFT_BLOCK_PCT,
+    record_price_history as _bc_record_price_history,
+    bump_buyer_catalog_usage as _bc_bump_usage,
+)
 import uuid
 import logging
 
@@ -102,7 +109,50 @@ async def _resolve_catalog_defaults(db, it: 'MaklonPOItemIn') -> dict:
             'product_name': cat.get('product_name', ''),
             'default_cmt_price': float(cat.get('default_cmt_price') or 0),
         },
+        # Phase M2.3: return raw catalog default + drift info supaya caller bisa check
+        '_catalog_default_cmt': float(cat.get('default_cmt_price') or 0),
     }
+
+
+async def _evaluate_items_drift(db, items, force_drift: bool = False) -> List[dict]:
+    """Phase M2.3 — evaluate price drift per item yg punya buyer_catalog_id.
+    Returns list of drift events (severity != 'ok').
+    Raise 422 jika ada block-level drift kecuali force_drift=True.
+    """
+    from routes.dewi_maklon_buyer_catalog import compute_price_drift  # local import to avoid cycle
+    events: List[dict] = []
+    for idx, it in enumerate(items, start=1):
+        cat_id = getattr(it, 'buyer_catalog_id', None)
+        if not cat_id:
+            continue
+        cat = await db.dewi_maklon_buyer_catalog.find_one(
+            {'id': cat_id}, {'_id': 0, 'default_cmt_price': 1, 'artikel_code': 1}
+        )
+        if not cat:
+            continue
+        drift = compute_price_drift(cat.get('default_cmt_price') or 0, float(it.cmt_rate_per_pcs or 0))
+        if drift['severity'] == 'ok':
+            continue
+        events.append({
+            'item_idx': idx,
+            'seri_no': it.seri_no,
+            'buyer_catalog_id': cat_id,
+            'artikel_code': cat.get('artikel_code', ''),
+            **drift,
+        })
+    blocks = [e for e in events if e['severity'] == 'block']
+    if blocks and not force_drift:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                'error': 'PRICE_DRIFT_BLOCK',
+                'message': f"{len(blocks)} item melebihi batas drift {PRICE_DRIFT_BLOCK_PCT}%. Tambahkan 'force_price_drift=true' bila ingin proceed.",
+                'block_threshold_pct': PRICE_DRIFT_BLOCK_PCT,
+                'warn_threshold_pct': PRICE_DRIFT_WARN_PCT,
+                'drift_events': events,
+            },
+        )
+    return events
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -130,6 +180,8 @@ class MaklonPOIn(BaseModel):
     payment_terms: Optional[str] = Field(default='net_30')
     notes: Optional[str] = None
     items: List[MaklonPOItemIn] = Field(default_factory=list)
+    # Phase M2.3: force flag untuk bypass price drift block ≥25%
+    force_price_drift: Optional[bool] = Field(default=False, description="Bypass drift block guard")
 
 
 class MaklonPOUpdateIn(BaseModel):
@@ -137,6 +189,8 @@ class MaklonPOUpdateIn(BaseModel):
     payment_terms: Optional[str] = None
     notes: Optional[str] = None
     items: Optional[List[MaklonPOItemIn]] = None
+    # Phase M2.3: force flag untuk bypass price drift block ≥25%
+    force_price_drift: Optional[bool] = Field(default=False)
 
 
 class DispatchItemIn(BaseModel):
@@ -222,6 +276,10 @@ async def create_maklon_po(payload: MaklonPOIn, user: dict = Depends(require_aut
     if not client:
         raise HTTPException(404, 'Klien maklon tidak ditemukan')
 
+    # Phase M2.3: pre-evaluate price drift untuk semua items yang ber-buyer_catalog_id
+    # Raise 422 jika ada block-level drift (≥25%) kecuali force_price_drift=True
+    drift_events = await _evaluate_items_drift(db, payload.items, force_drift=bool(payload.force_price_drift))
+
     client_code = client.get('code', 'CLT')
     po_number = await _next_po_number(db, client_code)
 
@@ -293,9 +351,43 @@ async def create_maklon_po(payload: MaklonPOIn, user: dict = Depends(require_aut
         'created_by_name': user.get('name', ''),
     }
     await db.dewi_maklon_pos.insert_one(doc)
+
+    # Phase M2.3: Record price history & bump usage untuk tiap item ber-buyer_catalog_id
+    for it_in, it_doc in zip(payload.items, items):
+        cat_id = it_doc.get('buyer_catalog_id')
+        if not cat_id:
+            continue
+        # Selalu bump usage analytics
+        await _bc_bump_usage(db, cat_id, qty=it_doc['qty'], revenue=it_doc['subtotal'])
+        # Record price history kalau actual rate beda dari default (any drift) 
+        snap = it_doc.get('buyer_catalog_snapshot') or {}
+        default_rate = float(snap.get('default_cmt_price') or 0)
+        actual_rate = float(it_doc.get('cmt_rate_per_pcs') or 0)
+        if default_rate != actual_rate:
+            note_text = 'Match catalog default'
+            for ev in drift_events:
+                if ev.get('buyer_catalog_id') == cat_id and ev.get('seri_no') == it_doc['seri_no']:
+                    note_text = ev.get('message') or f"Drift {ev['severity']} {ev['drift_pct']}%"
+                    break
+            await _bc_record_price_history(
+                db,
+                cat_id,
+                event_type='po_create',
+                new_cmt_price=actual_rate,
+                user=user,
+                po_number=po_number,
+                note=note_text,
+                old_cmt_price=default_rate,
+            )
+
     await log_activity(user.get('id', ''), user.get('name', ''), 'create', 'dewi_maklon_pos',
                        f'Buat PO Maklon {po_number} — {client["name"]} — {total_qty} pcs')
-    return serialize_doc(doc)
+
+    resp = serialize_doc(doc)
+    # Sertakan drift_events di response (warning level diteruskan ke FE)
+    if drift_events:
+        resp['_drift_events'] = drift_events
+    return resp
 
 
 @router.get('/pos/{po_id}')
@@ -366,7 +458,11 @@ async def update_maklon_po(po_id: str, payload: MaklonPOUpdateIn, user: dict = D
         upd['payment_terms'] = payload.payment_terms
     if payload.notes is not None:
         upd['notes'] = payload.notes
+
+    drift_events: List[dict] = []
     if payload.items is not None:
+        # Phase M2.3: pre-evaluate price drift
+        drift_events = await _evaluate_items_drift(db, payload.items, force_drift=bool(payload.force_price_drift))
         # Rebuild items
         items = []
         total_qty = 0
@@ -408,7 +504,37 @@ async def update_maklon_po(po_id: str, payload: MaklonPOUpdateIn, user: dict = D
         upd['total_value'] = total_value
 
     await db.dewi_maklon_pos.update_one({'id': po_id}, {'$set': upd})
-    return {'status': 'updated'}
+
+    # Phase M2.3: record price history bila ada items dengan drift
+    if payload.items is not None:
+        for it_in, it_doc in zip(payload.items, upd.get('items', [])):
+            cat_id = it_doc.get('buyer_catalog_id')
+            if not cat_id:
+                continue
+            snap = it_doc.get('buyer_catalog_snapshot') or {}
+            default_rate = float(snap.get('default_cmt_price') or 0)
+            actual_rate = float(it_doc.get('cmt_rate_per_pcs') or 0)
+            if default_rate != actual_rate:
+                note_text = 'Update PO — rate berubah'
+                for ev in drift_events:
+                    if ev.get('buyer_catalog_id') == cat_id and ev.get('seri_no') == it_doc['seri_no']:
+                        note_text = ev.get('message') or f"Drift {ev['severity']} {ev['drift_pct']}%"
+                        break
+                await _bc_record_price_history(
+                    db,
+                    cat_id,
+                    event_type='po_update',
+                    new_cmt_price=actual_rate,
+                    user=user,
+                    po_number=po.get('po_number'),
+                    note=note_text,
+                    old_cmt_price=default_rate,
+                )
+
+    resp: dict = {'status': 'updated'}
+    if drift_events:
+        resp['_drift_events'] = drift_events
+    return resp
 
 
 @router.post('/pos/{po_id}/confirm')

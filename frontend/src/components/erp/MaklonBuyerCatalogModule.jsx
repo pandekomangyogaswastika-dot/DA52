@@ -47,6 +47,7 @@ import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { PageHeader } from './moduleAtoms';
 import { EmptyState } from './EmptyState';
+import MaklonBuyerCatalogDetailDialog from './MaklonBuyerCatalogDetailDialog';
 
 const CATEGORIES = [
   'Dress',
@@ -75,6 +76,7 @@ export default function MaklonBuyerCatalogModule({ token }) {
   const [filterStatus, setFilterStatus] = useState('all');
   const [search, setSearch] = useState('');
   const [dialog, setDialog] = useState(null); // null | { data?: row }
+  const [detailCatalog, setDetailCatalog] = useState(null); // null | catalog row untuk detail dialog (M2)
 
   const fetchClients = useCallback(async () => {
     try {
@@ -341,6 +343,16 @@ export default function MaklonBuyerCatalogModule({ token }) {
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   <div className="flex gap-1">
                     <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs h-7 border-violet-400/30 text-violet-300 hover:bg-violet-500/10"
+                      onClick={() => setDetailCatalog(it)}
+                      data-testid={`buyer-catalog-detail-${it.id}`}
+                      title="Detail + Price History + BOM Templates"
+                    >
+                      Detail
+                    </Button>
+                    <Button
                       size="icon"
                       variant="ghost"
                       className="w-7 h-7"
@@ -395,6 +407,15 @@ export default function MaklonBuyerCatalogModule({ token }) {
             setDialog(null);
             fetchItems();
           }}
+        />
+      )}
+
+      {/* Phase M2: Detail Dialog (Price History + BOM Templates) */}
+      {detailCatalog && (
+        <MaklonBuyerCatalogDetailDialog
+          catalog={detailCatalog}
+          headers={headers}
+          onClose={() => setDetailCatalog(null)}
         />
       )}
     </div>

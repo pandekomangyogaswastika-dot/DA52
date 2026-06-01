@@ -217,10 +217,43 @@ function SampleDialog({ data, orders, headers, onClose, onSuccess }) {
   const isEdit = !!data;
   const [form, setForm] = useState(data || {
     order_id: '', product_name: '', description: '', target_size: 'M',
-    fabric_used: '', color_used: '', sample_qty: 1, notes: ''
+    fabric_used: '', color_used: '', sample_qty: 1, notes: '', buyer_catalog_id: null
   });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  // Phase M2.1: load buyer catalogs untuk klien dari order yg dipilih
+  const [catalogs, setCatalogs] = useState([]);
+  const [loadingCat, setLoadingCat] = useState(false);
+
+  useEffect(() => {
+    if (!form.order_id || isEdit) { setCatalogs([]); return; }
+    const selectedOrder = orders.find(o => o.id === form.order_id);
+    if (!selectedOrder?.client_id) { setCatalogs([]); return; }
+    setLoadingCat(true);
+    fetch(`/api/dewi/maklon/buyer-catalog?client_id=${selectedOrder.client_id}&status=active`, { headers })
+      .then(r => r.ok ? r.json() : [])
+      .then(list => setCatalogs(Array.isArray(list) ? list : []))
+      .finally(() => setLoadingCat(false));
+  }, [form.order_id, orders, headers, isEdit]);
+
+  const handlePickCatalog = (catalogId) => {
+    if (catalogId === 'NONE') {
+      set('buyer_catalog_id', null);
+      return;
+    }
+    const cat = catalogs.find(c => c.id === catalogId);
+    if (!cat) return;
+    setForm(prev => ({
+      ...prev,
+      buyer_catalog_id: cat.id,
+      // Auto-fill kosong fields dari catalog
+      product_name: prev.product_name?.trim() || cat.product_name || cat.artikel_code,
+      description: prev.description?.trim() || cat.description || '',
+      color_used: prev.color_used?.trim() || (cat.color_options?.[0] || ''),
+    }));
+    toast.success(`Auto-fill dari Buyer Catalog: ${cat.artikel_code}`);
+  };
 
   const save = async () => {
     if (!form.order_id || !form.product_name) { toast.error('Order & nama produk wajib'); return; }
@@ -250,6 +283,33 @@ function SampleDialog({ data, orders, headers, onClose, onSuccess }) {
                 </SelectContent>
               </Select>
             </div>
+            {/* Phase M2.1: Buyer Catalog picker (optional) */}
+            {!isEdit && form.order_id && catalogs.length > 0 && (
+              <div className="space-y-1 col-span-2 bg-violet-500/5 border border-violet-400/20 rounded-lg p-2">
+                <Label className="text-xs text-violet-300">📖 Link ke Buyer Catalog (opsional)</Label>
+                <Select value={form.buyer_catalog_id || 'NONE'} onValueChange={handlePickCatalog}>
+                  <SelectTrigger className="h-9" data-testid="sample-buyer-catalog-select">
+                    <SelectValue placeholder="Pilih artikel dari Buyer Catalog (auto-fill spec)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">— Tidak link ke catalog (freestyle) —</SelectItem>
+                    {catalogs.map(c => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.artikel_code} — {c.product_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="text-[10px] text-foreground/45">
+                  Sample yang ter-link akan jadi referensi approval untuk semua PO masa depan dengan artikel sama.
+                </div>
+              </div>
+            )}
+            {!isEdit && form.order_id && !loadingCat && catalogs.length === 0 && (
+              <div className="col-span-2 text-[10px] text-foreground/45 italic">
+                Belum ada Buyer Catalog active untuk klien ini.
+              </div>
+            )}
             <div className="space-y-1 col-span-2"><Label>Nama Produk Sample *</Label><Input value={form.product_name} onChange={e => set('product_name', e.target.value)} data-testid="sample-product-name-input" /></div>
             <div className="space-y-1"><Label>Target Size</Label><Input value={form.target_size} onChange={e => set('target_size', e.target.value)} /></div>
             <div className="space-y-1"><Label>Qty Sample</Label><Input type="number" min="1" value={form.sample_qty} onChange={e => set('sample_qty', e.target.value)} /></div>

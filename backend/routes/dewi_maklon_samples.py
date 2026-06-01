@@ -34,6 +34,9 @@ class SampleIn(BaseModel):
     sample_qty: int = Field(default=1, ge=1)
     photos: List[str] = Field(default_factory=list, description="URL atau file reference")
     notes: Optional[str] = None
+    # Phase M2.1: optional link ke Buyer Catalog (master artikel buyer).
+    # Jika dipilih, otomatis prefill product_name/description dari catalog.
+    buyer_catalog_id: Optional[str] = Field(None, description="ID Buyer Catalog (opsional)")
 
 class RevisionIn(BaseModel):
     reason: str = Field(..., description="Alasan revisi / feedback dari klien")
@@ -72,15 +75,18 @@ def _clean(doc: dict) -> dict:
 async def list_samples(
     order_id: Optional[str] = None,
     status: Optional[str] = None,
+    buyer_catalog_id: Optional[str] = None,
     user: dict = Depends(require_auth)
 ):
-    """List all samples, optionally filtered by order_id or status."""
+    """List all samples, optionally filtered by order_id, status, or buyer_catalog_id."""
     db = get_db()
     query = {}
     if order_id:
         query['order_id'] = order_id
     if status:
         query['status'] = status
+    if buyer_catalog_id:
+        query['buyer_catalog_id'] = buyer_catalog_id
     samples = await db.dewi_maklon_samples.find(query).sort('created_at', -1).to_list(length=500)
     return [_clean(s) for s in samples]
 
@@ -110,6 +116,33 @@ async def create_sample(payload: SampleIn, user: dict = Depends(require_auth)):
     is_po = rec.get('_collection') == 'dewi_maklon_pos'
     order = po_to_legacy_order(rec) if is_po else rec
 
+    # Phase M2.1: Auto-fill dari Buyer Catalog jika ada
+    catalog_snapshot = None
+    if payload.buyer_catalog_id:
+        cat = await db.dewi_maklon_buyer_catalog.find_one(
+            {'id': payload.buyer_catalog_id}, {'_id': 0}
+        )
+        if cat:
+            # Validate catalog client matches order client (consistency)
+            if order.get('client_id') and cat.get('client_id') and order['client_id'] != cat['client_id']:
+                raise HTTPException(
+                    400,
+                    'Buyer Catalog tidak cocok dengan klien order ini. '
+                    'Pilih artikel dari klien yang sama.',
+                )
+            # Override jika field kosong
+            if not payload.product_name or payload.product_name.strip() == '':
+                payload.product_name = cat.get('product_name') or cat.get('artikel_code') or 'Sample'
+            if not payload.description:
+                payload.description = cat.get('description') or ''
+            if not payload.color_used and cat.get('color_options'):
+                payload.color_used = cat['color_options'][0]
+            catalog_snapshot = {
+                'artikel_code': cat.get('artikel_code', ''),
+                'buyer_ref_code': cat.get('buyer_ref_code', ''),
+                'product_name': cat.get('product_name', ''),
+            }
+
     now = datetime.now(timezone.utc)
     sample_code = payload.sample_code or await _generate_sample_code(db, order.get('order_code', 'UNK'))
 
@@ -136,6 +169,9 @@ async def create_sample(payload: SampleIn, user: dict = Depends(require_auth)):
     doc['created_at'] = now
     doc['updated_at'] = now
     doc['created_by'] = user.get('name', 'System')
+    # Phase M2.1: simpan snapshot catalog untuk audit
+    if catalog_snapshot:
+        doc['buyer_catalog_snapshot'] = catalog_snapshot
 
     await db.dewi_maklon_samples.insert_one(doc)
     return {'message': 'Sample berhasil dibuat', 'id': doc['id'], 'sample_code': sample_code}

@@ -552,6 +552,18 @@ async def create_indexes():
         await db.dewi_maklon_buyer_catalog.create_index("buyer_ref_code")
         await db.dewi_maklon_buyer_catalog.create_index([("updated_at", -1)])
 
+        # ── Phase M2.1: Sample → Buyer Catalog link ───────────────────────────
+        await db.dewi_maklon_samples.create_index("buyer_catalog_id")
+
+        # ── Phase M2.2: BOM Template (versioned) ──────────────────────────────
+        await db.dewi_maklon_bom_templates.create_index("buyer_catalog_id")
+        await db.dewi_maklon_bom_templates.create_index(
+            [("buyer_catalog_id", 1), ("version", 1)], unique=True
+        )
+        await db.dewi_maklon_bom_templates.create_index(
+            [("buyer_catalog_id", 1), ("is_active", 1)]
+        )
+
         # Maklon Inventory (material milik klien)
         await db.dewi_maklon_inventory.create_index("maklon_po_ref")
         await db.dewi_maklon_inventory.create_index("maklon_client_id")
@@ -1284,6 +1296,10 @@ app.include_router(dewi_maklon_pos_router)
 # Phase M1: Buyer Catalog (Master Artikel Buyer Maklon)
 from routes.dewi_maklon_buyer_catalog import router as dewi_maklon_buyer_catalog_router
 app.include_router(dewi_maklon_buyer_catalog_router)
+
+# Phase M2.2: BOM Template per Buyer Catalog (versioned)
+from routes.dewi_maklon_bom_templates import router as dewi_maklon_bom_templates_router
+app.include_router(dewi_maklon_bom_templates_router)
 
 # Maklon PO 360° View Aggregator (Phase 25 — P2 Workflow Consolidation #1)
 from routes.dewi_maklon_po_360 import router as dewi_maklon_po_360_router

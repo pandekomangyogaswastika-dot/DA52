@@ -1,46 +1,58 @@
 [
   {
-    "content": "Impact Analysis",
+    "content": "M2.3 Backend: price_history + drift endpoints",
     "status": "completed"
   },
   {
-    "content": "Phase M1.1: Backend dewi_maklon_buyer_catalog routes",
+    "content": "M2.3 Backend: drift detection helper (2-tier)",
     "status": "completed"
   },
   {
-    "content": "Phase M1.2: Backend modify dewi_maklon_pos.py (buyer_catalog_id + auto-fill)",
+    "content": "M2.3 Backend: Integrate drift check di dewi_maklon_pos.py",
     "status": "completed"
   },
   {
-    "content": "Phase M1.5: Register router + indexes in server.py",
+    "content": "M2.1 Backend: Sample buyer_catalog_id + endpoint samples-by-catalog",
     "status": "completed"
   },
   {
-    "content": "Phase M1.5: Backend smoke test",
+    "content": "M2.2 Backend: BOM Template versioned CRUD + apply-to-PO",
     "status": "completed"
   },
   {
-    "content": "Phase M1.3: Frontend MaklonBuyerCatalogModule",
+    "content": "M2.2 Backend: Register routes + indexes",
     "status": "completed"
   },
   {
-    "content": "Phase M1.3: Frontend MaklonBuyerCatalogPicker",
+    "content": "Backend smoke testing",
     "status": "completed"
   },
   {
-    "content": "Phase M1.3: Modify MaklonPOModule.jsx (integrate picker)",
+    "content": "M2.4 + M2.3 Frontend: MaklonArtikelAutocomplete",
     "status": "completed"
   },
   {
-    "content": "Phase M1.3: Update portalNav.js + moduleRegistry.js",
+    "content": "M2.4 Frontend: Integrate autocomplete di MaklonPOModule",
     "status": "completed"
   },
   {
-    "content": "Phase M1.4: Rename UI label → 'DA Product Master'",
+    "content": "M2.3 Frontend: Price History tab + Force Drift confirmation",
     "status": "completed"
   },
   {
-    "content": "Final E2E testing (testing agent + manual screenshot)",
+    "content": "M2.2 Frontend: BOM Template UI (Detail Dialog)",
     "status": "completed"
+  },
+  {
+    "content": "M2.2 Frontend: Apply Template button di MaklonPOModule BOM",
+    "status": "completed"
+  },
+  {
+    "content": "M2.1 Frontend: MaklonSampleManagement — picker buyer catalog",
+    "status": "completed"
+  },
+  {
+    "content": "Final E2E testing agent + plan.md update",
+    "status": "in_progress"
   }
 ]

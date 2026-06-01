@@ -13,7 +13,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Package, Plus, Eye, Edit2, CheckCircle2, Clock, RefreshCw, Ban,
   Truck, FileText, DollarSign, ChevronDown, ChevronUp, Trash2,
-  ArrowRight, BarChart3, AlertCircle, BoxesIcon, Send, BookOpen
+  ArrowRight, BarChart3, AlertCircle, BoxesIcon, Send, BookOpen,
+  ShieldAlert, AlertTriangle
 } from 'lucide-react';
 import { GlassCard } from '@/components/ui/glass';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PageHeader } from './moduleAtoms';
 import MaklonBuyerCatalogPicker from './MaklonBuyerCatalogPicker';
+import MaklonArtikelAutocomplete from './MaklonArtikelAutocomplete';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -64,33 +66,42 @@ function fmtNum(v) {
 }
 
 // ─── ITEM ROW (grid editable) ────────────────────────────────────────────────
-function ItemRow({ item, idx, onChange, onRemove, readOnly, onOpenPicker }) {
+function ItemRow({ item, idx, onChange, onRemove, readOnly, onOpenPicker, clientId, headers }) {
   const upd = (field, val) => onChange(idx, { ...item, [field]: val });
-  const hasCatalog = !!item.buyer_catalog_id;
+  const clearCatalogLink = () => onChange(idx, { ...item, buyer_catalog_id: null });
+  const handlePickFromAutocomplete = (cat) => {
+    onChange(idx, {
+      ...item,
+      artikel: cat.artikel_code || item.artikel,
+      color: item.color || (cat.color_options?.[0] || ''),
+      size: item.size || (cat.size_options?.[0] || ''),
+      cmt_rate_per_pcs: Number(cat.default_cmt_price || item.cmt_rate_per_pcs || 0),
+      buyer_catalog_id: cat.id,
+    });
+  };
   return (
-    <tr className="border-b border-white/5 hover:bg-white/3 transition-colors">
+    <tr className="border-b border-white/5 hover:bg-white/3 transition-colors align-top">
       <td className="py-2 px-2">
         <Input value={item.seri_no} onChange={e => upd('seri_no', e.target.value)}
           className="h-7 text-xs bg-white/5 border-white/10 w-16" placeholder="S01" disabled={readOnly} />
       </td>
       <td className="py-2 px-2">
-        <div className="flex items-center gap-1">
-          <Input value={item.artikel} onChange={e => upd('artikel', e.target.value)}
-            className="h-7 text-xs bg-white/5 border-white/10 w-28" placeholder="DRESS-001" disabled={readOnly} />
-          {!readOnly && (
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className={`h-7 w-7 shrink-0 ${hasCatalog ? 'text-violet-300 bg-violet-500/10 hover:bg-violet-500/20' : 'text-slate-400 hover:bg-white/10'}`}
-              onClick={() => onOpenPicker?.(idx)}
-              title={hasCatalog ? 'Artikel dari Buyer Catalog (klik untuk ganti)' : 'Pilih dari Buyer Catalog'}
-              data-testid={`po-item-${idx}-pick-catalog`}
-            >
-              <BookOpen className="w-3 h-3" />
-            </Button>
-          )}
-        </div>
+        {readOnly ? (
+          <Input value={item.artikel} className="h-7 text-xs bg-white/5 border-white/10 w-32" disabled />
+        ) : (
+          <MaklonArtikelAutocomplete
+            value={item.artikel}
+            onChange={(v) => upd('artikel', v)}
+            onPick={handlePickFromAutocomplete}
+            clientId={clientId}
+            currentRate={item.cmt_rate_per_pcs}
+            currentCatalogId={item.buyer_catalog_id}
+            headers={headers}
+            disabled={readOnly}
+            onClearCatalogLink={clearCatalogLink}
+            testIdPrefix={`po-item-${idx}-artikel`}
+          />
+        )}
       </td>
       <td className="py-2 px-2">
         <Input value={item.color || ''} onChange={e => upd('color', e.target.value)}
@@ -194,7 +205,7 @@ function POForm({ po, clients, onSave, onClose }) {
     setPickerIdx(null);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (forceDrift = false) => {
     if (!form.client_id) return toast.error('Pilih klien terlebih dahulu');
     if (form.items.length === 0) return toast.error('Tambah minimal 1 item');
     if (form.items.some(i => !i.artikel.trim())) return toast.error('Semua item harus punya artikel');
@@ -202,9 +213,39 @@ function POForm({ po, clients, onSave, onClose }) {
     try {
       const url = isEdit ? `${API}/api/dewi/maklon/pos/${po.id}` : `${API}/api/dewi/maklon/pos`;
       const method = isEdit ? 'PUT' : 'POST';
-      const r = await fetch(url, { method, headers, body: JSON.stringify(form) });
+      const body = JSON.stringify({ ...form, force_price_drift: !!forceDrift });
+      const r = await fetch(url, { method, headers, body });
+      if (r.status === 422) {
+        // Phase M2.3: Price drift block — minta konfirmasi force
+        const err = await r.json();
+        let detail = err.detail;
+        if (typeof detail === 'string') {
+          try { detail = JSON.parse(detail.replace(/'/g, '"')); } catch (_e) { /* keep string */ }
+        }
+        if (detail && detail.error === 'PRICE_DRIFT_BLOCK') {
+          const events = detail.drift_events || [];
+          const lines = events.map(e =>
+            `  • Item ${e.seri_no} (${e.artikel_code}): ${e.drift_pct > 0 ? '+' : ''}${e.drift_pct}% — ${e.severity.toUpperCase()}`
+          ).join('\n');
+          const msg = `⚠️ HARGA MELEBIHI BATAS APPROVAL\n\n${detail.message}\n\nDetail item:\n${lines}\n\nLanjutkan dengan FORCE? (Aktivitas akan tercatat di audit log)`;
+          if (window.confirm(msg)) {
+            await handleSave(true);
+            return;
+          }
+          setSaving(false);
+          return;
+        }
+        throw new Error((typeof detail === 'string') ? detail : (detail?.message || 'Gagal'));
+      }
       if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Gagal'); }
       const d = await r.json();
+      // Phase M2.3: tampilkan warning toast kalau ada drift_events level 'warning'
+      if (d._drift_events?.length) {
+        const warnings = d._drift_events.filter(e => e.severity === 'warning');
+        if (warnings.length) {
+          toast.warning(`${warnings.length} item memiliki drift harga ≥10% (warning, masih boleh)`, { duration: 5000 });
+        }
+      }
       toast.success(isEdit ? 'PO berhasil diupdate' : `PO ${d.po_number} berhasil dibuat`);
       onSave();
     } catch (e) { toast.error(e.message); }
@@ -255,9 +296,12 @@ function POForm({ po, clients, onSave, onClose }) {
         <div className="flex items-center justify-between">
           <div>
             <Label className="text-xs">Items / Seri *</Label>
-            <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+            <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1 flex-wrap">
               <BookOpen className="w-3 h-3 text-violet-300" />
-              Klik ikon buku di samping Artikel untuk auto-fill dari Buyer Catalog
+              Ketik artikel → muncul saran dari Buyer Catalog
+              <span className="text-foreground/30">·</span>
+              <AlertTriangle className="w-3 h-3 text-amber-300" />
+              Warning auto jika harga ≠ default catalog
             </div>
           </div>
           <Button type="button" size="sm" variant="outline" className="h-7 text-xs border-white/10 hover:bg-white/10"
@@ -276,7 +320,7 @@ function POForm({ po, clients, onSave, onClose }) {
             </thead>
             <tbody>
               {form.items.map((item, idx) => (
-                <ItemRow key={idx} item={item} idx={idx} onChange={updateItem} onRemove={removeItem} onOpenPicker={handleOpenPicker} />
+                <ItemRow key={idx} item={item} idx={idx} onChange={updateItem} onRemove={removeItem} onOpenPicker={handleOpenPicker} clientId={form.client_id} headers={headers} />
               ))}
             </tbody>
             <tfoot className="border-t border-white/10 bg-white/3">
@@ -873,10 +917,61 @@ function BOMForm({ po, headers, onSave, onClose }) {
 
   if (loading) return <div className="text-center py-8 text-slate-400 text-sm">Memuat BOM...</div>;
 
+  // Phase M2.2: Apply BOM Template button
+  const hasCatalogLink = (po.items || []).some(it => it.buyer_catalog_id);
+
+  const applyTemplate = async () => {
+    if (!window.confirm('Replace materials saat ini dengan BOM Template aktif dari artikel? Pastikan sudah simpan yang manual sebelum lanjut.')) return;
+    try {
+      const r = await fetch(`${API}/api/dewi/maklon/bom-templates/apply-to-po`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ po_id: po.id }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || 'Gagal apply template');
+      }
+      const d = await r.json();
+      toast.success(d.message || `${d.material_count} material di-apply dari template`);
+      // Reload current BOM
+      const r2 = await fetch(`${API}/api/dewi/maklon/bom/${po.id}`, { headers });
+      if (r2.ok) {
+        const data = await r2.json();
+        setExistingBom(data);
+        // Map template materials ke format BOM existing (preserve compat)
+        const mappedMats = (data.materials || []).map(m => ({
+          material_name: m.material_name || '',
+          material_category: m.category || 'fabric',
+          ownership: m.ownership || 'client_provided',
+          unit: m.unit || 'pcs',
+          qty_estimated: Number(m.qty_total_est || (m.qty_per_pcs || 0) * (po.total_qty || 0)) || 0,
+          qty_actual: null,
+        }));
+        if (mappedMats.length) setMaterials(mappedMats);
+      }
+    } catch (e) {
+      toast.error(e.message);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="bg-violet-500/10 border border-violet-400/20 rounded-lg px-3 py-2 text-xs text-violet-300">
-        Total PO: <strong>{fmtNum(totalQty)} pcs</strong> — qty/pcs = total_estimasi ÷ {totalQty}
+      <div className="bg-violet-500/10 border border-violet-400/20 rounded-lg px-3 py-2 text-xs text-violet-300 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          Total PO: <strong>{fmtNum(totalQty)} pcs</strong> — qty/pcs = total_estimasi ÷ {totalQty}
+        </div>
+        {hasCatalogLink && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs border-violet-400/40 bg-violet-500/15 text-violet-200 hover:bg-violet-500/25"
+            onClick={applyTemplate}
+            data-testid="po-bom-apply-template"
+          >
+            <BookOpen className="w-3 h-3 mr-1" /> Apply BOM Template
+          </Button>
+        )}
       </div>
 
       <div className="space-y-2">

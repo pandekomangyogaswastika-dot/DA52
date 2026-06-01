@@ -40,6 +40,10 @@ def _now() -> datetime:
 # ──────────────────────────────────────────────────────────────────────────────
 ALLOWED_STATUS = {'active', 'inactive', 'discontinued'}
 
+# Phase M2.3: Price Drift Threshold (2-tier policy)
+PRICE_DRIFT_WARN_PCT = 10.0   # ≥10% → warning kuning
+PRICE_DRIFT_BLOCK_PCT = 25.0  # ≥25% → block (HTTP 422) kecuali force=True
+
 
 class BuyerCatalogIn(BaseModel):
     client_id: str = Field(..., description='FK ke dewi_maklon_clients')
@@ -182,6 +186,22 @@ async def create_buyer_catalog(payload: BuyerCatalogIn, user: dict = Depends(req
         'total_qty_produced': 0,
         'total_revenue': 0.0,
         'last_used_at': None,
+        # Phase M2.3: price history audit trail
+        'price_history': [
+            {
+                'id': _uid(),
+                'event_type': 'initial',
+                'old_cmt_price': 0,
+                'new_cmt_price': float(payload.default_cmt_price or 0),
+                'old_selling_price': 0,
+                'new_selling_price': float(payload.default_selling_price or 0),
+                'changed_by_id': user.get('id') or '',
+                'changed_by_name': user.get('name') or user.get('email') or 'system',
+                'po_number': None,
+                'note': 'Initial creation',
+                'timestamp': _now(),
+            }
+        ],
         # audit
         'created_at': _now(),
         'updated_at': _now(),
@@ -238,7 +258,34 @@ async def update_buyer_catalog(catalog_id: str, payload: BuyerCatalogUpdate, use
             update_data[f] = [x.strip() for x in update_data[f] if x and str(x).strip()]
 
     update_data['updated_at'] = _now()
-    await db.dewi_maklon_buyer_catalog.update_one({'id': catalog_id}, {'$set': update_data})
+
+    # Phase M2.3: Auto-record price history bila default_cmt_price atau default_selling_price berubah
+    price_history_entry = None
+    if 'default_cmt_price' in update_data or 'default_selling_price' in update_data:
+        old_cmt = float(existing.get('default_cmt_price') or 0)
+        old_sell = float(existing.get('default_selling_price') or 0)
+        new_cmt = float(update_data.get('default_cmt_price', old_cmt) or 0)
+        new_sell = float(update_data.get('default_selling_price', old_sell) or 0)
+        if new_cmt != old_cmt or new_sell != old_sell:
+            price_history_entry = {
+                'id': _uid(),
+                'event_type': 'master_update',
+                'old_cmt_price': old_cmt,
+                'new_cmt_price': new_cmt,
+                'old_selling_price': old_sell,
+                'new_selling_price': new_sell,
+                'changed_by_id': user.get('id') or '',
+                'changed_by_name': user.get('name') or user.get('email') or 'system',
+                'po_number': None,
+                'note': 'Update master harga (manual)',
+                'timestamp': _now(),
+            }
+
+    set_op: dict = {'$set': update_data}
+    if price_history_entry:
+        set_op['$push'] = {'price_history': price_history_entry}
+
+    await db.dewi_maklon_buyer_catalog.update_one({'id': catalog_id}, set_op)
 
     refreshed = await db.dewi_maklon_buyer_catalog.find_one({'id': catalog_id})
     refreshed = serialize_doc(refreshed)
@@ -325,3 +372,168 @@ async def bump_buyer_catalog_usage(db, catalog_id: str, qty: int = 0, revenue: f
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning('Gagal bump buyer_catalog usage (%s): %s', catalog_id, exc)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Phase M2.3 — Price Drift Detection & Price History
+# ──────────────────────────────────────────────────────────────────────────────
+def compute_price_drift(default_price: float, actual_price: float) -> dict:
+    """
+    Hitung drift pct dan tentukan severity 2-tier:
+      - severity 'ok'      : drift < 10%
+      - severity 'warning' : 10% ≤ drift < 25%
+      - severity 'block'   : drift ≥ 25%
+    Mengembalikan struktur:
+      {drift_pct, direction, severity, default_price, actual_price, message}
+    """
+    try:
+        dp = float(default_price or 0)
+        ap = float(actual_price or 0)
+    except (ValueError, TypeError):
+        return {'severity': 'ok', 'drift_pct': 0, 'direction': 'flat', 'default_price': 0, 'actual_price': 0, 'message': ''}
+
+    if dp <= 0:
+        return {'severity': 'ok', 'drift_pct': 0, 'direction': 'flat', 'default_price': dp, 'actual_price': ap, 'message': ''}
+
+    drift_pct = round(((ap - dp) / dp) * 100, 2)
+    abs_drift = abs(drift_pct)
+    direction = 'higher' if drift_pct > 0 else ('lower' if drift_pct < 0 else 'flat')
+
+    if abs_drift >= PRICE_DRIFT_BLOCK_PCT:
+        severity = 'block'
+        message = (
+            f"Harga PO Rp{int(ap):,} berbeda {abs_drift:.1f}% ({direction}) dari default catalog Rp{int(dp):,}. "
+            f"Melebihi batas {PRICE_DRIFT_BLOCK_PCT}% — perlu approval (kirim 'force_price_drift=true')."
+        )
+    elif abs_drift >= PRICE_DRIFT_WARN_PCT:
+        severity = 'warning'
+        message = (
+            f"Harga PO Rp{int(ap):,} berbeda {abs_drift:.1f}% ({direction}) dari default catalog Rp{int(dp):,}. "
+            f"Di atas threshold warning {PRICE_DRIFT_WARN_PCT}%."
+        )
+    else:
+        severity = 'ok'
+        message = ''
+
+    return {
+        'severity': severity,
+        'drift_pct': drift_pct,
+        'direction': direction,
+        'default_price': dp,
+        'actual_price': ap,
+        'threshold_warn': PRICE_DRIFT_WARN_PCT,
+        'threshold_block': PRICE_DRIFT_BLOCK_PCT,
+        'message': message,
+    }
+
+
+async def record_price_history(
+    db,
+    catalog_id: str,
+    event_type: str,
+    new_cmt_price: float,
+    user: dict,
+    po_number: Optional[str] = None,
+    note: str = '',
+    old_cmt_price: Optional[float] = None,
+) -> None:
+    """Append entry ke price_history embedded array buyer catalog.
+    Dipakai oleh MaklonPO saat PO dibuat dengan rate berbeda dari default.
+    """
+    if not catalog_id:
+        return
+    try:
+        existing = await db.dewi_maklon_buyer_catalog.find_one(
+            {'id': catalog_id}, {'_id': 0, 'default_cmt_price': 1, 'default_selling_price': 1}
+        )
+        if not existing:
+            return
+        old_cmt = float(old_cmt_price if old_cmt_price is not None else (existing.get('default_cmt_price') or 0))
+        entry = {
+            'id': _uid(),
+            'event_type': event_type,  # 'po_create' | 'po_update' | 'master_update' | 'initial'
+            'old_cmt_price': old_cmt,
+            'new_cmt_price': float(new_cmt_price or 0),
+            'old_selling_price': float(existing.get('default_selling_price') or 0),
+            'new_selling_price': float(existing.get('default_selling_price') or 0),
+            'changed_by_id': user.get('id') if user else '',
+            'changed_by_name': (user.get('name') or user.get('email') or 'system') if user else 'system',
+            'po_number': po_number,
+            'note': note,
+            'timestamp': _now(),
+        }
+        await db.dewi_maklon_buyer_catalog.update_one(
+            {'id': catalog_id},
+            {'$push': {'price_history': entry}},
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning('Gagal record price history (%s): %s', catalog_id, exc)
+
+
+@router.get('/buyer-catalog/{catalog_id}/samples')
+async def list_samples_for_catalog(catalog_id: str, user: dict = Depends(require_auth)):
+    """Phase M2.1 — list semua sample yang ter-link ke catalog ini, sorted desc."""
+    db = get_db()
+    cat = await db.dewi_maklon_buyer_catalog.find_one({'id': catalog_id}, {'_id': 0, 'artikel_code': 1})
+    if not cat:
+        raise HTTPException(404, 'Entry Buyer Catalog tidak ditemukan')
+    samples = await db.dewi_maklon_samples.find(
+        {'buyer_catalog_id': catalog_id}
+    ).sort('created_at', -1).to_list(length=200)
+    out = []
+    for s in samples:
+        s.pop('_id', None)
+        # Serialize datetimes
+        for k in ('created_at', 'updated_at', 'submitted_at', 'approved_at', 'rejected_at'):
+            if isinstance(s.get(k), datetime):
+                s[k] = s[k].isoformat()
+        out.append(s)
+    # Summary metrics
+    summary = {
+        'total': len(out),
+        'approved': len([s for s in out if s.get('status') == 'approved']),
+        'in_progress': len([s for s in out if s.get('status') in ('draft', 'in_progress', 'submitted')]),
+        'rejected': len([s for s in out if s.get('status') == 'rejected']),
+        'last_approved_at': next((s.get('approved_at') for s in out if s.get('status') == 'approved'), None),
+    }
+    return {
+        'catalog_id': catalog_id,
+        'artikel_code': cat.get('artikel_code', ''),
+        'samples': out,
+        'summary': summary,
+    }
+
+
+@router.get('/buyer-catalog/{catalog_id}/price-history')
+async def get_buyer_catalog_price_history(catalog_id: str, user: dict = Depends(require_auth)):
+    """Ambil price_history array dari catalog (sorted desc by timestamp)."""
+    db = get_db()
+    doc = await db.dewi_maklon_buyer_catalog.find_one({'id': catalog_id}, {'_id': 0, 'price_history': 1, 'artikel_code': 1})
+    if not doc:
+        raise HTTPException(404, 'Entry Buyer Catalog tidak ditemukan')
+    history = doc.get('price_history') or []
+    # serialize datetime
+    history_sorted = sorted(history, key=lambda x: x.get('timestamp') or _now(), reverse=True)
+    for h in history_sorted:
+        if isinstance(h.get('timestamp'), datetime):
+            h['timestamp'] = h['timestamp'].isoformat()
+    return {
+        'catalog_id': catalog_id,
+        'artikel_code': doc.get('artikel_code', ''),
+        'price_history': history_sorted,
+        'thresholds': {'warn_pct': PRICE_DRIFT_WARN_PCT, 'block_pct': PRICE_DRIFT_BLOCK_PCT},
+    }
+
+
+@router.post('/buyer-catalog/{catalog_id}/check-drift')
+async def check_buyer_catalog_drift(catalog_id: str, body: dict, user: dict = Depends(require_auth)):
+    """Pre-check drift sebelum simpan PO (preview). Body: {actual_price: float}."""
+    db = get_db()
+    cat = await db.dewi_maklon_buyer_catalog.find_one({'id': catalog_id}, {'_id': 0, 'default_cmt_price': 1, 'artikel_code': 1})
+    if not cat:
+        raise HTTPException(404, 'Entry Buyer Catalog tidak ditemukan')
+    actual = float(body.get('actual_price') or 0)
+    drift = compute_price_drift(cat.get('default_cmt_price') or 0, actual)
+    drift['catalog_id'] = catalog_id
+    drift['artikel_code'] = cat.get('artikel_code', '')
+    return drift
