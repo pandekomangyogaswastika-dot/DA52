@@ -290,6 +290,7 @@ export const PORTAL_NAV = {
           { id: 'wh-putaway',                   label: 'Put-Away',                        icon: ArrowRightLeft },
           { id: 'wh-picklist',                  label: 'Pick List',                       icon: ClipboardList },
           { id: 'wh-opname',                    label: 'Stok Opname',                    icon: ClipboardCheck },
+          { id: 'wh-inventory-adjustments',     label: 'Penyesuaian Stok (Adjustment)',  icon: PackageMinus, badge: 'BARU' },
           { id: 'wh-bin',                        label: 'Lokasi / Bin',                   icon: MapPin },
           { id: 'wh-accessory-ops',             label: 'Transaksi Aksesoris',            icon: Sparkles },
           { id: 'warehouse-accessory-requests', label: 'Inbox Request Aksesoris', icon: PackageSearch, badge: 'RESMI' },
@@ -437,6 +438,16 @@ export const PORTAL_NAV = {
             ],
           },
           {
+            label: 'Operasi Khusus (Phase B)',
+            items: [
+              { id: 'fin-accruals',            label: 'Pencatatan Akrual',         icon: FileText },
+              { id: 'fin-asset-depreciation',  label: 'Depresiasi Aset (Batch)',   icon: Calculator },
+              { id: 'fin-bad-debt-writeoff',   label: 'Hapus Buku Piutang Macet',  icon: ShieldAlert },
+              { id: 'fin-asset-disposal',      label: 'Pelepasan Aset Tetap',      icon: PackageMinus },
+              { id: 'fin-purchase-discount',   label: 'Diskon Pembelian (AP)',     icon: HandCoins },
+            ],
+          },
+          {
             label: 'Setup & Master Data',
             items: [
               { id: 'admin-setup-panel', label: 'Admin Setup Panel (COA/Profiles)', icon: Database, badge: 'Phase 7' },
@@ -507,6 +518,7 @@ export const PORTAL_NAV = {
           { id: 'hr-payroll-allowances', label: 'Tunjangan Tetap',           icon: HandCoins },
           { id: 'hr-salary-adjustments', label: 'Kenaikan Gaji (Approval)',  icon: TrendingUp },
           { id: 'hr-payroll-run',        label: 'Penggajian & Slip',         icon: Banknote },
+          { id: 'hr-employee-loans',     label: 'Pinjaman Karyawan',         icon: HandCoins, badge: 'BARU' },
         ],
       },
       {

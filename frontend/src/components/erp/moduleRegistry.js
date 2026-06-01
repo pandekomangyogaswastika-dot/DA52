@@ -79,6 +79,16 @@ const AccessoryModule  = lazy(() => import('./AccessoryModule'));
 // Portal Aksesoris dedicated modules (Session #11.21)
 const AccessoriesDashboard = lazy(() => import('./AccessoriesDashboard'));
 const AccessoriesReports   = lazy(() => import('./AccessoriesReports'));
+
+// Phase B: 8 Frontend UI Modules (Finance, HR, Warehouse) - Added 2026-06-01
+const AccrualsModule = lazy(() => import('./AccrualsModule'));
+const AssetDepreciationModule = lazy(() => import('./AssetDepreciationModule'));
+const BadDebtWriteOffModule = lazy(() => import('./BadDebtWriteOffModule'));
+const AssetDisposalModule = lazy(() => import('./AssetDisposalModule'));
+const PurchaseDiscountModule = lazy(() => import('./PurchaseDiscountModule'));
+const EmployeeLoansModule = lazy(() => import('./EmployeeLoansModule'));
+const InventoryScrapModule = lazy(() => import('./InventoryScrapModule'));
+
 const WHReturnsModule  = lazy(() => import('./WHReturnsModule'));
 const CMTPackingModule = lazy(() => import('./CMTPackingModule'));
 // Task 2.5: Production Material Returns
@@ -645,6 +655,19 @@ export const MODULE_REGISTRY = {
   'fin-budget':            BudgetModule,
   'fin-fixed-assets':      FixedAssetsModule,
   'fin-executive-report':  ExecutiveReportModule,      // Phase 3 — Executive Report Hub
+
+  // Finance · Phase B (2026-06-01) — 8 UI Modules for Advanced Features
+  'fin-accruals':              AccrualsModule,
+  'fin-asset-depreciation':    AssetDepreciationModule,
+  'fin-bad-debt-writeoff':     BadDebtWriteOffModule,
+  'fin-asset-disposal':        AssetDisposalModule,
+  'fin-purchase-discount':     PurchaseDiscountModule,
+
+  // HR · Phase B — Employee Loans Module
+  'hr-employee-loans':         EmployeeLoansModule,
+
+  // Warehouse · Phase B — Inventory Adjustments
+  'wh-inventory-adjustments':  InventoryScrapModule,
 
   // Session 13 — SLA Dashboard, Management Tools, Smart Warehouse
   // Phase 3.3A Batch 2: maklon-sla-dashboard konsolidasi ke maklon-dashboard sebagai tab
