@@ -382,12 +382,8 @@ async def upload_backup(request: Request):
 
 
 @router.post("/upload-file")
-async def upload_backup_file(
-    request: Request,
-    file: 'UploadFile'
-):
+async def upload_backup_file(request: Request):
     """Upload and extract ZIP backup file"""
-    from fastapi import UploadFile
     import zipfile
     import tempfile
     import shutil

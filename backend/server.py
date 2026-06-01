@@ -543,6 +543,15 @@ async def create_indexes():
         # Maklon BOM (New)
         await db.dewi_maklon_bom.create_index("po_id", unique=True)
 
+        # ── Phase M1: Buyer Catalog (Master Artikel Buyer Maklon) ─────────────
+        await db.dewi_maklon_buyer_catalog.create_index("client_id")
+        await db.dewi_maklon_buyer_catalog.create_index("status")
+        await db.dewi_maklon_buyer_catalog.create_index(
+            [("client_id", 1), ("artikel_code", 1)], unique=True
+        )
+        await db.dewi_maklon_buyer_catalog.create_index("buyer_ref_code")
+        await db.dewi_maklon_buyer_catalog.create_index([("updated_at", -1)])
+
         # Maklon Inventory (material milik klien)
         await db.dewi_maklon_inventory.create_index("maklon_po_ref")
         await db.dewi_maklon_inventory.create_index("maklon_client_id")
@@ -1271,6 +1280,10 @@ app.include_router(dewi_maklon_router)
 # Maklon PO (New — Production-Maklon Overhaul)
 from routes.dewi_maklon_pos import router as dewi_maklon_pos_router
 app.include_router(dewi_maklon_pos_router)
+
+# Phase M1: Buyer Catalog (Master Artikel Buyer Maklon)
+from routes.dewi_maklon_buyer_catalog import router as dewi_maklon_buyer_catalog_router
+app.include_router(dewi_maklon_buyer_catalog_router)
 
 # Maklon PO 360° View Aggregator (Phase 25 — P2 Workflow Consolidation #1)
 from routes.dewi_maklon_po_360 import router as dewi_maklon_po_360_router

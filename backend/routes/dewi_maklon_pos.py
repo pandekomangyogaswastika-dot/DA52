@@ -56,6 +56,56 @@ async def _next_ar_invoice_number(db) -> str:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# BUYER CATALOG INTEGRATION HELPERS (Phase M1)
+# ──────────────────────────────────────────────────────────────────────────────
+async def _resolve_catalog_defaults(db, it: 'MaklonPOItemIn') -> dict:
+    """
+    Jika MaklonPOItemIn membawa buyer_catalog_id, ambil dokumen catalog & isi default
+    untuk field yang kosong/0 di input user. Kembalikan dict ber-isi:
+        {
+            'artikel': str,
+            'sku_code': str,
+            'product_description': str,
+            'cmt_rate_per_pcs': float,
+            'catalog_snapshot': { artikel_code, buyer_ref_code, product_name, default_cmt_price }
+        }
+    Jika buyer_catalog_id tidak ada / tidak valid, kembalikan dict dengan nilai dari input
+    (tanpa snapshot), supaya backward compatible.
+    """
+    fallback = {
+        'artikel': (it.artikel or '').strip(),
+        'sku_code': (it.sku_code or ''),
+        'product_description': (it.product_description or ''),
+        'cmt_rate_per_pcs': float(it.cmt_rate_per_pcs or 0),
+        'catalog_snapshot': None,
+    }
+    if not getattr(it, 'buyer_catalog_id', None):
+        return fallback
+
+    cat = await db.dewi_maklon_buyer_catalog.find_one({'id': it.buyer_catalog_id}, {'_id': 0})
+    if not cat:
+        # Tetap proceed (jangan blok PO); buang reference yang tidak valid.
+        return fallback
+
+    artikel = fallback['artikel'] or cat.get('artikel_code') or cat.get('buyer_ref_code') or ''
+    product_description = fallback['product_description'] or cat.get('description') or cat.get('product_name') or ''
+    cmt_rate = fallback['cmt_rate_per_pcs'] if fallback['cmt_rate_per_pcs'] > 0 else float(cat.get('default_cmt_price') or 0)
+
+    return {
+        'artikel': artikel,
+        'sku_code': fallback['sku_code'],
+        'product_description': product_description,
+        'cmt_rate_per_pcs': cmt_rate,
+        'catalog_snapshot': {
+            'artikel_code': cat.get('artikel_code', ''),
+            'buyer_ref_code': cat.get('buyer_ref_code', ''),
+            'product_name': cat.get('product_name', ''),
+            'default_cmt_price': float(cat.get('default_cmt_price') or 0),
+        },
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # PYDANTIC MODELS
 # ──────────────────────────────────────────────────────────────────────────────
 class MaklonPOItemIn(BaseModel):
@@ -68,6 +118,9 @@ class MaklonPOItemIn(BaseModel):
     cmt_rate_per_pcs: float = Field(default=0, ge=0, description="Harga CMT per pcs (Rp)")
     product_description: Optional[str] = None
     notes: Optional[str] = None
+    # Phase M1: optional reference ke Buyer Catalog (master artikel buyer).
+    # Nullable untuk backward compat (PO existing tetap valid tanpa field ini).
+    buyer_catalog_id: Optional[str] = Field(None, description="ID Buyer Catalog (opsional, untuk traceability + auto-fill)")
 
 
 class MaklonPOIn(BaseModel):
@@ -178,25 +231,34 @@ async def create_maklon_po(payload: MaklonPOIn, user: dict = Depends(require_aut
     total_value = 0.0
     for idx, it in enumerate(payload.items, start=1):
         item_id = _uid()
-        subtotal = it.qty * it.cmt_rate_per_pcs
+        # Phase M1: resolve default dari Buyer Catalog jika buyer_catalog_id ada
+        resolved = await _resolve_catalog_defaults(db, it)
+        artikel_val = resolved['artikel']
+        cmt_rate_val = resolved['cmt_rate_per_pcs']
+        product_desc_val = resolved['product_description']
+
+        subtotal = it.qty * cmt_rate_val
         items.append({
             'item_id': item_id,
             'idx': idx,
             'seri_no': it.seri_no,
-            'artikel': it.artikel,
+            'artikel': artikel_val,
             'sku_code': it.sku_code or '',
             'color': it.color or '',
             'size': it.size or '',
             'qty': it.qty,
             'qty_produced': 0,
             'qty_dispatched': 0,
-            'cmt_rate_per_pcs': it.cmt_rate_per_pcs,
+            'cmt_rate_per_pcs': cmt_rate_val,
             'subtotal': subtotal,
-            'product_description': it.product_description or '',
+            'product_description': product_desc_val,
             'notes': it.notes or '',
             'wo_id': None,
             'wo_number': None,
             'status': 'pending',  # pending|in_production|completed|dispatched
+            # Phase M1: traceability ke Buyer Catalog (optional)
+            'buyer_catalog_id': getattr(it, 'buyer_catalog_id', None),
+            'buyer_catalog_snapshot': resolved.get('catalog_snapshot'),
         })
         total_qty += it.qty
         total_value += subtotal
@@ -310,25 +372,34 @@ async def update_maklon_po(po_id: str, payload: MaklonPOUpdateIn, user: dict = D
         total_qty = 0
         total_value = 0.0
         for idx, it in enumerate(payload.items, start=1):
-            subtotal = it.qty * it.cmt_rate_per_pcs
+            # Phase M1: resolve default dari Buyer Catalog jika buyer_catalog_id ada
+            resolved = await _resolve_catalog_defaults(db, it)
+            artikel_val = resolved['artikel']
+            cmt_rate_val = resolved['cmt_rate_per_pcs']
+            product_desc_val = resolved['product_description']
+
+            subtotal = it.qty * cmt_rate_val
             items.append({
                 'item_id': _uid(),
                 'idx': idx,
                 'seri_no': it.seri_no,
-                'artikel': it.artikel,
+                'artikel': artikel_val,
                 'sku_code': it.sku_code or '',
                 'color': it.color or '',
                 'size': it.size or '',
                 'qty': it.qty,
                 'qty_produced': 0,
                 'qty_dispatched': 0,
-                'cmt_rate_per_pcs': it.cmt_rate_per_pcs,
+                'cmt_rate_per_pcs': cmt_rate_val,
                 'subtotal': subtotal,
-                'product_description': it.product_description or '',
+                'product_description': product_desc_val,
                 'notes': it.notes or '',
                 'wo_id': None,
                 'wo_number': None,
                 'status': 'pending',
+                # Phase M1
+                'buyer_catalog_id': getattr(it, 'buyer_catalog_id', None),
+                'buyer_catalog_snapshot': resolved.get('catalog_snapshot'),
             })
             total_qty += it.qty
             total_value += subtotal

@@ -27,9 +27,10 @@ export default function RahazaModelsAndBOMModule({ token, user, headers, userRol
     <div className="space-y-4" data-testid="models-bom-module">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Master Produk & BOM</h1>
+        <h1 className="text-2xl font-bold text-foreground">DA Product Master</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Kelola model produk, BOM (Bill of Material), dan ukuran (size matrix) dalam satu tempat.
+          Kelola master produk internal CV. Dewi Aditya (DA): model, BOM (Bill of Material),
+          dan ukuran (size matrix). Terpisah dari Buyer Catalog Maklon.
         </p>
       </div>
 
@@ -38,7 +39,7 @@ export default function RahazaModelsAndBOMModule({ token, user, headers, userRol
         <TabsList className="grid w-full max-w-md grid-cols-3">
           <TabsTrigger value="models" className="flex items-center gap-1.5" data-testid="tab-models">
             <Shirt className="w-3.5 h-3.5" />
-            Master Model
+            Model DA
           </TabsTrigger>
           <TabsTrigger value="bom" className="flex items-center gap-1.5" data-testid="tab-bom">
             <ListTree className="w-3.5 h-3.5" />

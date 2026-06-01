@@ -13,7 +13,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Package, Plus, Eye, Edit2, CheckCircle2, Clock, RefreshCw, Ban,
   Truck, FileText, DollarSign, ChevronDown, ChevronUp, Trash2,
-  ArrowRight, BarChart3, AlertCircle, BoxesIcon, Send
+  ArrowRight, BarChart3, AlertCircle, BoxesIcon, Send, BookOpen
 } from 'lucide-react';
 import { GlassCard } from '@/components/ui/glass';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PageHeader } from './moduleAtoms';
+import MaklonBuyerCatalogPicker from './MaklonBuyerCatalogPicker';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -63,8 +64,9 @@ function fmtNum(v) {
 }
 
 // ─── ITEM ROW (grid editable) ────────────────────────────────────────────────
-function ItemRow({ item, idx, onChange, onRemove, readOnly }) {
+function ItemRow({ item, idx, onChange, onRemove, readOnly, onOpenPicker }) {
   const upd = (field, val) => onChange(idx, { ...item, [field]: val });
+  const hasCatalog = !!item.buyer_catalog_id;
   return (
     <tr className="border-b border-white/5 hover:bg-white/3 transition-colors">
       <td className="py-2 px-2">
@@ -72,8 +74,23 @@ function ItemRow({ item, idx, onChange, onRemove, readOnly }) {
           className="h-7 text-xs bg-white/5 border-white/10 w-16" placeholder="S01" disabled={readOnly} />
       </td>
       <td className="py-2 px-2">
-        <Input value={item.artikel} onChange={e => upd('artikel', e.target.value)}
-          className="h-7 text-xs bg-white/5 border-white/10 w-28" placeholder="DRESS-001" disabled={readOnly} />
+        <div className="flex items-center gap-1">
+          <Input value={item.artikel} onChange={e => upd('artikel', e.target.value)}
+            className="h-7 text-xs bg-white/5 border-white/10 w-28" placeholder="DRESS-001" disabled={readOnly} />
+          {!readOnly && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className={`h-7 w-7 shrink-0 ${hasCatalog ? 'text-violet-300 bg-violet-500/10 hover:bg-violet-500/20' : 'text-slate-400 hover:bg-white/10'}`}
+              onClick={() => onOpenPicker?.(idx)}
+              title={hasCatalog ? 'Artikel dari Buyer Catalog (klik untuk ganti)' : 'Pilih dari Buyer Catalog'}
+              data-testid={`po-item-${idx}-pick-catalog`}
+            >
+              <BookOpen className="w-3 h-3" />
+            </Button>
+          )}
+        </div>
       </td>
       <td className="py-2 px-2">
         <Input value={item.color || ''} onChange={e => upd('color', e.target.value)}
@@ -118,9 +135,14 @@ function POForm({ po, clients, onSave, onClose }) {
       seri_no: i.seri_no, artikel: i.artikel, sku_code: i.sku_code || '',
       color: i.color || '', size: i.size || '', qty: i.qty,
       cmt_rate_per_pcs: i.cmt_rate_per_pcs || 0,
-    })) || [{ seri_no: 'S01', artikel: '', color: '', size: '', qty: 0, cmt_rate_per_pcs: 0 }],
+      buyer_catalog_id: i.buyer_catalog_id || null,
+    })) || [{ seri_no: 'S01', artikel: '', color: '', size: '', qty: 0, cmt_rate_per_pcs: 0, buyer_catalog_id: null }],
   });
   const [saving, setSaving] = useState(false);
+  // Phase M1: Buyer Catalog picker state
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerIdx, setPickerIdx] = useState(null);
+
   const token = window._authToken;
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
@@ -129,7 +151,7 @@ function POForm({ po, clients, onSave, onClose }) {
 
   const addItem = () => setForm(f => ({
     ...f,
-    items: [...f.items, { seri_no: `S${String(f.items.length + 1).padStart(2, '0')}`, artikel: '', color: '', size: '', qty: 0, cmt_rate_per_pcs: 0 }]
+    items: [...f.items, { seri_no: `S${String(f.items.length + 1).padStart(2, '0')}`, artikel: '', color: '', size: '', qty: 0, cmt_rate_per_pcs: 0, buyer_catalog_id: null }]
   }));
 
   const updateItem = (idx, updated) => setForm(f => ({
@@ -137,6 +159,40 @@ function POForm({ po, clients, onSave, onClose }) {
   }));
 
   const removeItem = (idx) => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+
+  // Phase M1: open Buyer Catalog picker for specific row idx
+  const handleOpenPicker = (idx) => {
+    if (!form.client_id) {
+      toast.error('Pilih klien (buyer) dulu sebelum memilih dari Buyer Catalog');
+      return;
+    }
+    setPickerIdx(idx);
+    setPickerOpen(true);
+  };
+
+  // Phase M1: handle pick from catalog → auto-fill row
+  const handlePickCatalog = (catalogItem) => {
+    if (pickerIdx === null || !catalogItem) return;
+    setForm(f => ({
+      ...f,
+      items: f.items.map((it, i) => {
+        if (i !== pickerIdx) return it;
+        return {
+          ...it,
+          artikel: catalogItem.artikel_code || it.artikel,
+          // Pilih warna default pertama jika kosong & catalog punya opsi
+          color: it.color || (catalogItem.color_options?.[0] || ''),
+          size: it.size || (catalogItem.size_options?.[0] || ''),
+          // Snap default CMT price; user masih bisa override
+          cmt_rate_per_pcs: Number(catalogItem.default_cmt_price || it.cmt_rate_per_pcs || 0),
+          buyer_catalog_id: catalogItem.id,
+        };
+      }),
+    }));
+    toast.success(`Artikel "${catalogItem.artikel_code}" diisi dari Buyer Catalog`);
+    setPickerOpen(false);
+    setPickerIdx(null);
+  };
 
   const handleSave = async () => {
     if (!form.client_id) return toast.error('Pilih klien terlebih dahulu');
@@ -197,7 +253,13 @@ function POForm({ po, clients, onSave, onClose }) {
       {/* Items Grid */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs">Items / Seri *</Label>
+          <div>
+            <Label className="text-xs">Items / Seri *</Label>
+            <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+              <BookOpen className="w-3 h-3 text-violet-300" />
+              Klik ikon buku di samping Artikel untuk auto-fill dari Buyer Catalog
+            </div>
+          </div>
           <Button type="button" size="sm" variant="outline" className="h-7 text-xs border-white/10 hover:bg-white/10"
             onClick={addItem}>
             <Plus className="w-3 h-3 mr-1" /> Tambah Baris
@@ -214,7 +276,7 @@ function POForm({ po, clients, onSave, onClose }) {
             </thead>
             <tbody>
               {form.items.map((item, idx) => (
-                <ItemRow key={idx} item={item} idx={idx} onChange={updateItem} onRemove={removeItem} />
+                <ItemRow key={idx} item={item} idx={idx} onChange={updateItem} onRemove={removeItem} onOpenPicker={handleOpenPicker} />
               ))}
             </tbody>
             <tfoot className="border-t border-white/10 bg-white/3">
@@ -242,6 +304,15 @@ function POForm({ po, clients, onSave, onClose }) {
           {saving ? 'Menyimpan...' : (isEdit ? 'Update PO' : 'Buat PO')}
         </Button>
       </DialogFooter>
+
+      {/* Phase M1: Buyer Catalog Picker */}
+      <MaklonBuyerCatalogPicker
+        open={pickerOpen}
+        clientId={form.client_id}
+        headers={headers}
+        onClose={() => { setPickerOpen(false); setPickerIdx(null); }}
+        onPick={handlePickCatalog}
+      />
     </div>
   );
 }

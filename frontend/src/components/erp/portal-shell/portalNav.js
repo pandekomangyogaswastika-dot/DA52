@@ -256,7 +256,7 @@ export const PORTAL_NAV = {
           {
             label: '👕 Produk & Tim',
             items: [
-              { id: 'prod-models-bom', label: 'Master Produk & BOM',    icon: Shirt },
+              { id: 'prod-models-bom', label: 'DA Product Master',    icon: Shirt },
               { id: 'prod-employees',  label: 'Operator & Skill Matrix', icon: HardHat },
             ],
           },
@@ -621,10 +621,16 @@ export const PORTAL_NAV = {
     title: 'Maklon',
     sections: [
       {
-        label: 'KLIEN & ORDER',
+        label: 'MASTER DATA',
+        items: [
+          { id: 'maklon-clients',         label: 'Data Klien Maklon',  icon: Users },
+          { id: 'maklon-buyer-catalog',   label: 'Buyer Catalog',      icon: BookOpen, badge: 'BARU' },
+        ],
+      },
+      {
+        label: 'ORDER & PRODUKSI',
         items: [
           { id: 'maklon-dashboard', label: 'Dashboard Maklon',    icon: Package },
-          { id: 'maklon-clients',   label: 'Data Klien Maklon',   icon: Users },
           { id: 'maklon-po',        label: 'PO Maklon',           icon: ClipboardList },
           { id: 'maklon-po-360',    label: 'PO 360° View',         icon: Layers, badge: 'BARU' },
           { id: 'maklon-samples',   label: 'Sample Management',   icon: ClipboardCheck },

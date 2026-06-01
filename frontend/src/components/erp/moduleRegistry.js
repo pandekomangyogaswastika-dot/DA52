@@ -257,6 +257,8 @@ const WMSOpnameEnhancedModule     = lazy(() => import('./WMSOpnameEnhancedModule
 // ─── Portal Maklon (Fase 3) ───────────────────────────────────────────────────
 const MaklonDashboard = lazy(() => import('./MaklonDashboard'));
 const MaklonClientManagement = lazy(() => import('./MaklonClientManagement'));
+// Phase M1: Buyer Catalog (master artikel buyer Maklon, terpisah dari DA Product Master)
+const MaklonBuyerCatalogModule = lazy(() => import('./MaklonBuyerCatalogModule'));
 // MaklonOrderModule removed (Phase C cleanup 2026-05-23) — module was redirected
 // to maklon-po (MaklonPOModule). All Maklon order CRUD now happens at /api/dewi/maklon/pos.
 // Fase 3B: Sample & QC
@@ -766,6 +768,8 @@ export const MODULE_REGISTRY = {
   // ─── Portal Maklon (Fase 3) ───────────────────────────────────────────────
   'maklon-dashboard': MaklonDashboard,
   'maklon-clients':   MaklonClientManagement,
+  // Phase M1: Buyer Catalog (master artikel buyer Maklon)
+  'maklon-buyer-catalog': MaklonBuyerCatalogModule,
   // 'maklon-orders' removed (Phase C 2026-05-23) — redirects below alias to maklon-po
   // Fase 3B: Sample & QC
   'maklon-samples':   MaklonSampleManagement,

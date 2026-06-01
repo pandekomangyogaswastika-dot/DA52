@@ -269,13 +269,14 @@ Fokus: buktikan 3 core flow menghasilkan JE seimbang via `_create_posted_je()` d
 ## 1) Objectives (Phase 8–11)
 - ✅ Backend Phase 8–10 telah selesai dan diuji (iteration_8 & iteration_9) tanpa regresi mayor.
 - ✅ Backend Phase 11 (Employee Loans + Scrap) **sudah implemented sepenuhnya**.
-- ⏳ **P0 utama saat ini:** membangun **Frontend UI** untuk Phase 8/9/10/11 yang sebelumnya terlewat.
-- ⏳ Menjalankan testing terstruktur sesuai keputusan user:
-  1) **Backend validation dulu** (Phase 11)
-  2) **Frontend UI build** (urutan Phase 8 → 9 → 10 → 11)
-  3) **E2E testing** setelah UI selesai
+- ✅ Phase B (8 UI modules) selesai, ter-register, dan terintegrasi.
+- ✅ Database Backup & Restore module production-grade sudah diimplementasi (scripts + APScheduler + UI ZIP download/upload + selective restore).
+- ⏳ **P0 utama saat ini:**
+  1) Menjalankan testing terstruktur Phase 7 (regression)
+  2) Menjalankan testing terstruktur Phase 11 (backend validation)
+  3) Menyelesaikan E2E untuk seluruh UI Phase 8–11
 
-**Style UI yang disepakati:** konsisten dengan modul Finance yang sudah ada (contoh: `BankReconciliation.jsx`, `FixedAssetsModule.jsx`) — **card-based + Shadcn UI**.
+**Style UI yang disepakati:** konsisten dengan modul Finance yang sudah ada (card-based + Shadcn UI).
 
 ---
 
@@ -288,13 +289,13 @@ Fokus: buktikan 3 core flow menghasilkan JE seimbang via `_create_posted_je()` d
 1. Jalankan `testing_agent_v3` untuk skenario berikut:
    - Employee Loan Disbursement:
      - `POST /api/rahaza/hr/employee-loans/disburse`
-     - Validasi: JE terbentuk dan balance, idempotent (tidak dobel kalau request diulang dengan source_ref yang sama), `gl_disbursement_je_number` terisi.
+     - Validasi: JE terbentuk dan balance, idempotent, `gl_disbursement_je_number` terisi.
    - Employee Loan Repayment via Payroll:
      - `POST /api/rahaza/hr/employee-loans/{loan_id}/deduct-from-payroll`
      - Validasi: JE terbentuk sesuai mapping (Salary Payable ↔ Loan Receivable).
    - Manual repayment:
      - `POST /api/rahaza/hr/employee-loans/{loan_id}/repay`
-     - Catatan: saat ini route sudah update saldo & membuat repayment record; pastikan requirement GL untuk manual repayment jelas (jika wajib autopost, tambahkan posting function + mapping).
+     - Pastikan requirement GL untuk manual repayment jelas.
    - Scrap Inventory Adjustment:
      - buat inventory adjustment dengan `adjustment_reason=scrap/waste/reject/rusak`
      - Validasi: event `inventory_scrap` → Dr Scrap Expense / Cr Inventory.
@@ -308,75 +309,15 @@ Fokus: buktikan 3 core flow menghasilkan JE seimbang via `_create_posted_je()` d
 
 **Exit criteria**
 - ✅ Semua endpoint Phase 11 lolos testing agent.
-- ✅ JE seimbang (debit==credit) dan mapping tidak missing.
+- ✅ JE seimbang dan mapping tidak missing.
 
 ---
 
-### Phase B — Frontend UI Build (P0) ❌ NOT STARTED
-**Tujuan:** menyediakan UI agar user bisa memakai fitur Phase 8–11 tanpa perlu hit API manual.
-
-**Prinsip desain UI**
-- Card-based Shadcn (Form + Table + Action buttons)
-- Semua create action menampilkan:
-  - status sukses/gagal
-  - `_posting_result` (jika ada)
-  - link/label `je_number` bila terbentuk
-
-#### Phase 8 UI (P0)
-1. **AccrualsModule.jsx**
-   - Fungsi: create accrual + list + detail sederhana
-   - Fields minimal: tanggal, deskripsi, amount, akun debit/credit (atau pilih tipe accrual jika backend mendukung), notes
-   - Integrasi: `POST /api/finance/accruals` dan list endpoint terkait (jika belum ada, buat GET di backend atau gunakan existing pattern).
-
-2. **AssetDepreciationModule.jsx**
-   - Fungsi: jalankan batch depreciation + list hasil batch + status posting
-   - Integrasi: `POST /api/finance/fixed-assets/batch-depreciation`
-
-> Catatan: `FixedAssetsModule.jsx` sudah ada; modul baru fokus ke **operasional batch depreciation** dan monitoring JE.
-
-#### Phase 9 UI (P0)
-1. **BadDebtWriteOffModule.jsx**
-   - Fungsi: create write-off + list history
-   - Integrasi: `POST /api/finance/bad-debt/write-off`
-
-2. **SalesDiscountModule.jsx**
-   - Fungsi: input/track diskon penjualan + list + (opsional) posting status
-   - Integrasi: endpoint sales discount yang sudah dibuat pada Phase 9 backend.
-
-#### Phase 10 UI (P0)
-1. **AssetDisposalModule.jsx**
-   - Fungsi: disposal asset (jual/scrap/donation) + list disposal + JE link
-   - Integrasi: endpoint asset disposal (Phase 10 backend).
-
-2. **PurchaseDiscountModule.jsx**
-   - Fungsi: create/track purchase discount + list + JE link
-   - Integrasi: endpoint purchase discount (Phase 10 backend).
-
-#### Phase 11 UI (P0)
-1. **EmployeeLoansModule.jsx**
-   - Fungsi: list loan, disburse, repayment manual, lihat outstanding per employee, lihat riwayat repayment
-   - Integrasi:
-     - `GET /api/rahaza/hr/employee-loans`
-     - `POST /api/rahaza/hr/employee-loans/disburse`
-     - `POST /api/rahaza/hr/employee-loans/{id}/repay`
-     - `GET /api/rahaza/hr/employee-loans/{id}`
-     - `GET /api/rahaza/hr/employee-loans/outstanding-by-employee/{employee_id}`
-
-2. **Scrap Adjustment UI**
-   - Implementasi dipilih saat build:
-     - Opsi A: extend UI inventory adjustment existing (tambah dropdown reason: scrap/waste/reject/rusak)
-     - Opsi B: buat modul sederhana `InventoryScrapModule.jsx` untuk create scrap adjustment
-   - Integrasi: endpoint inventory adjustment yang mendukung `adjustment_reason`.
-
-#### Registration (wajib)
-- Register semua modul baru di:
-  - `frontend/src/components/erp/moduleRegistry.js`
-  - `frontend/src/components/erp/portalNav.js`
-- Pastikan menu muncul di portal yang tepat (Finance / Asset / HR / Inventory) sesuai pola existing.
+### Phase B — Frontend UI Build (P0) ✅ SELESAI
+> Catatan: Phase B UI (Accruals, Asset Depreciation, Bad Debt Write-Off, Sales Discount, Asset Disposal, Purchase Discount, Employee Loans, Inventory Scrap) telah dibangun, dipetakan, dan diregister.
 
 **Exit criteria**
 - ✅ Semua modul Phase 8–11 muncul di sidebar dan bisa dipakai end-user.
-- ✅ Create action menghasilkan feedback posting (JE number / error) di UI.
 
 ---
 
@@ -404,7 +345,7 @@ Fokus: buktikan 3 core flow menghasilkan JE seimbang via `_create_posted_je()` d
 **Exit criteria**
 - ✅ Tidak ada error console fatal di UI.
 - ✅ Semua posting menghasilkan JE balance dan idempotent.
-- ✅ Coverage auto-posting mencapai target **94%+** untuk event types yang disepakati.
+- ✅ Coverage auto-posting mencapai target **94%+**.
 
 ---
 
@@ -412,8 +353,7 @@ Fokus: buktikan 3 core flow menghasilkan JE seimbang via `_create_posted_je()` d
 
 ### 3.1 P0 — Eksekusi sesuai keputusan user
 1. ⏳ Jalankan **Backend validation Phase 11** dengan `testing_agent_v3`.
-2. ⏳ Bangun **Frontend UI** urut: Phase 8 → Phase 9 → Phase 10 → Phase 11.
-3. ⏳ Jalankan **E2E testing** setelah seluruh UI selesai.
+2. ⏳ Jalankan **E2E testing** setelah seluruh UI selesai.
 
 ### 3.2 P1 — Opsional Hardening
 - Tambahkan tombol/UX Phase 7 yang belum ada:
@@ -426,6 +366,207 @@ Fokus: buktikan 3 core flow menghasilkan JE seimbang via `_create_posted_je()` d
 
 ## 4) Success Criteria (Global)
 - ✅ Backend Phase 7–11 lengkap (auto-posting engine + posting profiles + COA seed).
-- ✅ **Frontend tersedia** untuk Phase 8/9/10/11 sehingga user bisa menjalankan proses tanpa API manual.
+- ✅ Frontend tersedia untuk Phase 8/9/10/11 sehingga user bisa menjalankan proses tanpa API manual.
 - ✅ `testing_agent_v3` lulus untuk backend validation Phase 11 dan E2E UI flows.
-- ✅ Auto-posting coverage **94%+** (target proyek) dan jurnal manual hanya untuk kasus exception.
+- ✅ Auto-posting coverage **94%+** dan jurnal manual hanya untuk kasus exception.
+
+---
+
+# Development Plan — Phase M1 (Maklon Data Separation) ⏳ NEW (Buyer Catalog + DA Product Master Rename)
+
+> **Tujuan:** memisahkan master data **Maklon vs Internal** agar flow tidak tercampur dan tidak membingungkan user.
+
+## 1) Objectives (Phase M1)
+1. ✅ Konfirmasi arsitektur: master data **Maklon** dan **Internal** dipisah total.
+2. ⏳ Menambahkan master data Maklon baru: **Buyer Catalog** (artikel dari buyer) yang sederhana dan reusable.
+3. ⏳ Integrasi Buyer Catalog ke **Maklon PO** sebagai default auto-fill (tetap editable) tanpa merusak PO existing.
+4. ⏳ Rename label internal master:
+   - "Master Produk & BOM" → **"DA Product Master"** (label only, tidak ubah DB schema).
+5. ⏳ Permission: **P1** — semua user Maklon boleh CRUD Buyer Catalog.
+
+**Status saat ini (Phase M1):**
+- ✅ Impact analysis selesai (termasuk identifikasi potensi konflik dengan Marketing Catalog).
+- ✅ Keputusan user:
+  - Internal master rename: **DA Product Master**
+  - Maklon master baru: **Buyer Catalog**
+  - Scope: Phase 1 implementasi (Backend CRUD + Frontend + Picker + Rename + Testing)
+  - Permission: **P1**
+- ⏳ Implementasi belum dimulai (coding belum dilakukan).
+
+---
+
+## 2) Implementation Steps (Phase M1)
+
+### Phase M1.0 — Impact Analysis & Guardrails ✅ SELESAI
+**Checklist (done)**
+- Trace semua referensi label "Master Produk" di frontend (`portalNav.js`, `RahazaModelsAndBOMModule.jsx`, user guide, docs).
+- Verifikasi `ProductsModule.jsx` adalah orphan (tidak muncul di sidebar).
+- Identifikasi potensi kebingungan antara:
+  - Marketing Catalog (`marketing-catalog`) vs
+  - internal master (akan di-rename) vs
+  - Buyer Catalog Maklon (baru).
+- Trace titik integrasi Maklon PO (`dewi_maklon_pos.py` + `MaklonPOModule.jsx`).
+
+**Guardrails**
+- Tidak mengubah port/.env.
+- Semua endpoint baru wajib `require_auth`.
+- Perubahan bersifat additive untuk backward compatibility (PO lama tetap valid).
+
+---
+
+### Phase M1.1 — Backend: Buyer Catalog CRUD + Indexes ⏳ PENDING
+**Tujuan:** menyediakan SSOT artikel buyer untuk Maklon.
+
+**Backend scope**
+1. Buat file baru: `backend/routes/dewi_maklon_buyer_catalog.py`
+2. Collection baru: `dewi_maklon_buyer_catalog`
+3. Endpoint (prefix konsisten: `/api/dewi/maklon`):
+   - `GET    /buyer-catalog?client_id=&status=&search=&limit=`
+   - `POST   /buyer-catalog`
+   - `GET    /buyer-catalog/{id}`
+   - `PUT    /buyer-catalog/{id}`
+   - `PUT    /buyer-catalog/{id}/toggle` (active/inactive/discontinued atau minimal active/inactive)
+   - `DELETE /buyer-catalog/{id}` (opsional; default soft-delete via status disarankan)
+4. Implement schema sesuai definisi:
+```json
+{
+  "id": "uuid",
+  "client_id": "str",
+  "client_name": "str",
+  "artikel_code": "str",
+  "buyer_ref_code": "str",
+  "product_name": "str",
+  "category": "str",
+  "season": "str?",
+  "gender": "str?",
+  "default_cmt_price": 0.0,
+  "default_selling_price": 0.0,
+  "color_options": ["str"],
+  "size_options": ["str"],
+  "description": "str",
+  "hero_image_url": "str?",
+  "status": "active|inactive|discontinued",
+  "created_at": "datetime",
+  "updated_at": "datetime",
+  "created_by": "str"
+}
+```
+
+**Indexes (startup `server.py`)**
+- `client_id`
+- `status`
+- `artikel_code` unique (opsional; jika unik per client → composite unique: `(client_id, artikel_code)`)
+- `buyer_ref_code` (opsional; jika sering dicari)
+- text index untuk search (`artikel_code`, `buyer_ref_code`, `product_name`)
+
+**Exit criteria**
+- ✅ CRUD berjalan.
+- ✅ Search dan filter client/status berfungsi.
+- ✅ Index aman dan idempotent.
+
+---
+
+### Phase M1.2 — Backend: Integrasi ke Maklon PO (Optional Link, Auto-fill) ⏳ PENDING
+**Tujuan:** PO Maklon dapat mengambil default artikel + harga dari Buyer Catalog, namun tetap bisa diubah.
+
+**Backend scope (modify `dewi_maklon_pos.py`)**
+1. Tambah field opsional pada `MaklonPOItemIn`:
+   - `buyer_catalog_id: Optional[str] = None`
+2. Saat create/update PO:
+   - Jika `buyer_catalog_id` ada → fetch dokumen Buyer Catalog
+   - Auto-fill default (jika input belum diisi) / snapshot:
+     - `artikel` (mis. `artikel_code` atau `buyer_ref_code` sesuai rule yang disepakati; default: tampilkan `buyer_ref_code` + simpan `artikel_code` juga bila perlu)
+     - `product_description`
+     - `cmt_rate_per_pcs` default = `default_cmt_price`
+   - Simpan `buyer_catalog_id` di embedded item untuk traceability.
+3. Backward compat:
+   - PO lama tanpa `buyer_catalog_id` tetap valid.
+
+**Exit criteria**
+- ✅ PO baru bisa dibuat dengan atau tanpa `buyer_catalog_id`.
+- ✅ Auto-fill tidak memaksa, tetap editable.
+- ✅ Tidak ada breaking change pada list/detail endpoint PO.
+
+---
+
+### Phase M1.3 — Frontend: Buyer Catalog Module + Picker + Integrasi PO ⏳ PENDING
+**Tujuan:** user Maklon punya UI untuk kelola Buyer Catalog dan menggunakannya di PO.
+
+**Frontend scope**
+1. Buat module baru: `MaklonBuyerCatalogModule.jsx`
+   - List + filter (client/status/search)
+   - Create/Edit dialog
+   - Toggle status
+   - Sesuaikan style dengan Maklon modules (GlassCard, PageHeader, EmptyState).
+2. Buat komponen picker: `MaklonBuyerCatalogPicker.jsx`
+   - Dialog pencarian 
+   - pilih item → return payload ke PO form.
+3. Modify `MaklonPOModule.jsx`
+   - Tambah tombol per-row: **"Pilih dari Buyer Catalog"**
+   - Setelah pilih:
+     - set `buyer_catalog_id`
+     - set `artikel` + set default `cmt_rate_per_pcs`
+     - user tetap bisa edit manual.
+4. Register modul:
+   - `moduleRegistry.js`: tambah mapping id `maklon-buyer-catalog` → `MaklonBuyerCatalogModule`
+   - `portalNav.js`: tambah menu di Portal Maklon (Master Data) label **Buyer Catalog**
+
+**Exit criteria**
+- ✅ Menu Buyer Catalog muncul di Portal Maklon.
+- ✅ CRUD via UI berjalan.
+- ✅ Picker dapat digunakan saat create PO.
+
+---
+
+### Phase M1.4 — Rename UI Label: Internal → “DA Product Master” ⏳ PENDING
+**Tujuan:** konsistensi istilah dan mengurangi kebingungan antara katalog marketing vs master internal.
+
+**Scope (label only, no ID/route change)**
+- `frontend/src/components/erp/portal-shell/portalNav.js`
+  - label `prod-models-bom`: "Master Produk & BOM" → "DA Product Master"
+- `frontend/src/components/erp/RahazaModelsAndBOMModule.jsx`
+  - header → "DA Product Master"
+  - tab label "Master Model" → "DA Product Master" (atau "DA Models" jika ingin lebih ringkas)
+- Update copy minor:
+  - `frontend/src/components/erp/userGuide/guideData.js`
+  - `/app/FORENSIC_07_INFORMATION_ARCHITECTURE.md`
+
+**Exit criteria**
+- ✅ Tidak ada perubahan module_id maupun routing.
+- ✅ Tidak ada regression pada Portal Produksi.
+
+---
+
+### Phase M1.5 — Router Registration + Testing (Backend + Frontend) ⏳ PENDING
+**Backend wiring**
+- Register router baru di `backend/server.py`:
+  - `from routes.dewi_maklon_buyer_catalog import router as dewi_maklon_buyer_catalog_router`
+  - `app.include_router(dewi_maklon_buyer_catalog_router)`
+
+**Testing**
+1. Backend smoke (manual/curl atau testing agent):
+   - CRUD Buyer Catalog
+   - Create PO menggunakan `buyer_catalog_id`
+   - Create PO tanpa `buyer_catalog_id`
+2. Frontend smoke:
+   - Navigasi menu Buyer Catalog
+   - Create buyer catalog entry
+   - Buat PO → pilih item via picker → pastikan auto-fill berjalan
+   - Pastikan compile aman (import icon di `portalNav.js` sesuai lucide-react)
+
+**Exit criteria**
+- ✅ Tidak ada error compile/lazy-load.
+- ✅ Backward compat PO lama terjaga.
+- ✅ Semua perubahan sesuai guardrails.
+
+---
+
+## 3) Success Criteria (Phase M1)
+- ✅ Master data Maklon dan internal benar-benar terpisah (tidak share collection/flow).
+- ✅ Buyer Catalog bisa dipakai untuk mempercepat input PO dan mengurangi typo.
+- ✅ PO tetap fleksibel: default dari catalog tapi editable.
+- ✅ Penamaan konsisten:
+  - Internal: **DA Product Master**
+  - Maklon: **Buyer Catalog**
+  - Marketing tetap: **Manajemen Katalog** (Marketplace)
+- ✅ Tidak ada regression pada modul Maklon existing (Billing, Samples, QC, Tracking, PO360).

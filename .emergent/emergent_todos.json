@@ -1,34 +1,46 @@
 [
   {
-    "content": "Impact Analysis: Trace all references to 'Master Produk', 'Models', 'rahaza_models' (yang akan di-rename ke DA Catalogue)",
+    "content": "Impact Analysis",
     "status": "completed"
   },
   {
-    "content": "Impact Analysis: Trace existing Maklon PO/Sample/BOM/HPP/Billing/Quote — yang akan integrate dengan Buyer Catalog",
+    "content": "Phase M1.1: Backend dewi_maklon_buyer_catalog routes",
     "status": "completed"
   },
   {
-    "content": "Impact Analysis: Cek potensi conflict naming 'DA Catalogue' vs 'Marketing Catalog' existing",
+    "content": "Phase M1.2: Backend modify dewi_maklon_pos.py (buyer_catalog_id + auto-fill)",
     "status": "completed"
   },
   {
-    "content": "Sajikan Impact Analysis Report + opsi mitigasi → tunggu approval user",
+    "content": "Phase M1.5: Register router + indexes in server.py",
+    "status": "completed"
+  },
+  {
+    "content": "Phase M1.5: Backend smoke test",
+    "status": "completed"
+  },
+  {
+    "content": "Phase M1.3: Frontend MaklonBuyerCatalogModule",
+    "status": "completed"
+  },
+  {
+    "content": "Phase M1.3: Frontend MaklonBuyerCatalogPicker",
+    "status": "completed"
+  },
+  {
+    "content": "Phase M1.3: Modify MaklonPOModule.jsx (integrate picker)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase M1.3: Update portalNav.js + moduleRegistry.js",
+    "status": "completed"
+  },
+  {
+    "content": "Phase M1.4: Rename UI label → 'DA Product Master'",
+    "status": "completed"
+  },
+  {
+    "content": "Final E2E testing dengan testing agent",
     "status": "in_progress"
-  },
-  {
-    "content": "Implement Phase 1: Backend dewi_maklon_buyer_catalog routes (CRUD + auto-fill helper)",
-    "status": "pending"
-  },
-  {
-    "content": "Implement Phase 1: Frontend MaklonBuyerCatalogModule + integrasi ke MaklonPOModule (product picker)",
-    "status": "pending"
-  },
-  {
-    "content": "Implement Phase 1: Rename 'Master Produk & BOM' → 'DA Catalogue' (label only, collection tetap)",
-    "status": "pending"
-  },
-  {
-    "content": "Test backend + frontend (testing agent)",
-    "status": "pending"
   }
 ]
