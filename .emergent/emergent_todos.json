@@ -1,58 +1,22 @@
 [
   {
-    "content": "M2.3 Backend: price_history + drift endpoints",
+    "content": "M2.3 Backend + Frontend: Price History + Drift 2-tier",
     "status": "completed"
   },
   {
-    "content": "M2.3 Backend: drift detection helper (2-tier)",
+    "content": "M2.1 Backend + Frontend: Sample-Catalog Link",
     "status": "completed"
   },
   {
-    "content": "M2.3 Backend: Integrate drift check di dewi_maklon_pos.py",
+    "content": "M2.2 Backend + Frontend: BOM Template Versioned + Apply-to-PO",
     "status": "completed"
   },
   {
-    "content": "M2.1 Backend: Sample buyer_catalog_id + endpoint samples-by-catalog",
+    "content": "M2.4 Frontend: Autocomplete combobox di PO artikel",
     "status": "completed"
   },
   {
-    "content": "M2.2 Backend: BOM Template versioned CRUD + apply-to-PO",
+    "content": "Final E2E testing 96.4% pass + plan.md update",
     "status": "completed"
-  },
-  {
-    "content": "M2.2 Backend: Register routes + indexes",
-    "status": "completed"
-  },
-  {
-    "content": "Backend smoke testing",
-    "status": "completed"
-  },
-  {
-    "content": "M2.4 + M2.3 Frontend: MaklonArtikelAutocomplete",
-    "status": "completed"
-  },
-  {
-    "content": "M2.4 Frontend: Integrate autocomplete di MaklonPOModule",
-    "status": "completed"
-  },
-  {
-    "content": "M2.3 Frontend: Price History tab + Force Drift confirmation",
-    "status": "completed"
-  },
-  {
-    "content": "M2.2 Frontend: BOM Template UI (Detail Dialog)",
-    "status": "completed"
-  },
-  {
-    "content": "M2.2 Frontend: Apply Template button di MaklonPOModule BOM",
-    "status": "completed"
-  },
-  {
-    "content": "M2.1 Frontend: MaklonSampleManagement — picker buyer catalog",
-    "status": "completed"
-  },
-  {
-    "content": "Final E2E testing agent + plan.md update",
-    "status": "in_progress"
   }
 ]

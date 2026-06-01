@@ -322,28 +322,159 @@ Fokus: buktikan 3 core flow menghasilkan JE seimbang via `_create_posted_je()` d
   - Internal: **DA Product Master**
   - Maklon: **Buyer Catalog**
   - Marketing tetap: **Manajemen Katalog** (Marketplace)
-- ✅ Tidak ada regression pada modul Maklon existing (Billing, Samples, QC, Tracking, PO360).
+- ✅ Tidak ada regression pada modul Maklon existing (Billing, QC, Tracking, PO360).
 
 ---
 
-# Development Plan — Phase M2 ⏳ OPTIONAL (Next Iteration)
+# Development Plan — Phase M2 ✅ SELESAI 100% (Maklon Catalog Enrichment)
 
-> **Tujuan:** meningkatkan reusability dan governance Maklon setelah Buyer Catalog stabil.
+> **Tujuan:** meningkatkan reusability dan governance Maklon setelah Buyer Catalog stabil, tanpa merusak flow existing.
 
 ## 1) Objectives (Phase M2)
-- Menghubungkan Buyer Catalog sebagai SSOT untuk modul Maklon lain (samples, BOM) tanpa memaksa perubahan flow yang sudah jalan.
+1. ✅ Menambah **audit trail harga** dan **guardrails** saat harga di PO berbeda dari default catalog.
+2. ✅ Menghubungkan Buyer Catalog sebagai SSOT referensi untuk:
+   - ✅ **Samples** (approval reusable per artikel)
+   - ✅ **BOM Template** (resep material per artikel, versioned)
+3. ✅ Membuat input PO lebih cepat dan konsisten lewat **autocomplete artikel** (source: Buyer Catalog).
+4. ✅ Menjaga **backward compatibility** (PO/Sample lama tetap valid).
 
-## 2) Implementation Steps (Phase M2)
-1. **Link Buyer Catalog → Maklon Sample**
-   - Sample approval per catalog (reusable lintas PO).
-2. **BOM Template per Buyer Catalog**
-   - BOM template per artikel buyer + override per PO.
-3. **Price History / Audit Trail**
-   - Track perubahan harga default dan perubahan di PO.
-4. **Smart Features di PO**
-   - Auto-suggest saat ketik artikel.
-   - Price drift warning (mis. beda >10% dari default).
+**Status akhir (Phase M2):**
+- ✅ M2.1 Sample-Catalog Link (backend + frontend)
+- ✅ M2.2 BOM Template Versioning + Apply-to-PO (backend + frontend)
+- ✅ M2.3 Price History + Drift Detection (2-tier) + Force override (backend + frontend)
+- ✅ M2.4 Autocomplete Artikel (combobox + keyboard nav + drift badge)
 
-## 3) Success Criteria (Phase M2)
-- Buyer Catalog menjadi pusat referensi Maklon (tanpa mengganggu proses PO existing).
-- Audit trail kuat untuk harga dan spek.
+---
+
+## 2) Implementation Steps (Phase M2) — Completed Detail
+
+### Phase M2.3 — Price History + Drift Detection (2-tier) ✅
+**Backend**
+- `price_history[]` embedded array di `dewi_maklon_buyer_catalog`:
+  - fields: `event_type`, `old/new prices`, `changed_by`, `po_number`, `note`, `timestamp`.
+- Threshold 2-tier:
+  - **warning ≥10%**
+  - **block ≥25%** → `HTTP 422 PRICE_DRIFT_BLOCK`.
+- Bypass guardrail: `force_price_drift=true` (Maklon PO create/update) dengan audit trail.
+- Auto-record history saat:
+  - initial create
+  - master update (harga default berubah)
+  - PO create/update bila rate ≠ default.
+- Endpoints:
+  - `GET /api/dewi/maklon/buyer-catalog/{id}/price-history`
+  - `POST /api/dewi/maklon/buyer-catalog/{id}/check-drift`
+
+**Frontend**
+- Inline drift badge di row artikel (amber warning / red block).
+- Confirm dialog saat save PO terkena block (retry otomatis dengan `force_price_drift=true` setelah user konfirmasi).
+- Tab **Price History** di detail dialog Buyer Catalog dengan trend arrows dan detail PO/user.
+
+### Phase M2.1 — Sample ↔ Buyer Catalog Link ✅
+**Backend**
+- Field opsional `buyer_catalog_id` pada `SampleIn`.
+- Auto-fill `product_name`, `description`, `color_used` dari catalog bila kosong.
+- Validasi konsistensi client: buyer catalog harus sesuai client pada order/PO.
+- Endpoint baru:
+  - `GET /api/dewi/maklon/buyer-catalog/{id}/samples` (list + summary metrics).
+
+**Frontend**
+- Picker Buyer Catalog di dialog create Sample (ter-filter by client dari order).
+- Auto-fill saat pilih catalog.
+- Detail dialog Buyer Catalog tab **Detail** menampilkan linked samples + ringkas status.
+
+### Phase M2.2 — BOM Template Versioning + Apply-to-PO ✅
+**Backend**
+- Collection baru: `dewi_maklon_bom_templates` (versioned per catalog, composite unique `(buyer_catalog_id, version)`).
+- CRUD + activate endpoint (aktifkan 1 versi, auto-deactivate yang lain).
+- Apply endpoint:
+  - `POST /api/dewi/maklon/bom-templates/apply-to-po`:
+    - copy materials → `dewi_maklon_bom` per PO
+    - simpan snapshot: `source_template_id`, `source_template_version`, `source_template_label`.
+  - Auto-pick active version jika `template_id` tidak diberikan.
+
+**Frontend**
+- Detail dialog Buyer Catalog tab **BOM Templates**:
+  - list multi versi (v1, v2, ...), badge AKTIF
+  - tombol Versi Baru, Edit, Delete, Aktifkan
+  - editor multi-material + total cost auto-compute.
+- BOMForm di Maklon PO: tombol **Apply BOM Template** (muncul jika PO ada item yang ter-link Buyer Catalog).
+
+### Phase M2.4 — Autocomplete Artikel di PO ✅
+**Frontend**
+- Komponen baru `MaklonArtikelAutocomplete.jsx`:
+  - debounced search 200ms
+  - source: Buyer Catalog **active** (filter by client)
+  - keyboard navigation: ArrowDown/Up/Enter/Escape
+  - pick → auto-fill artikel + default cmt_rate + default color/size
+  - integrasi drift badge inline.
+- Replace plain input artikel di `MaklonPOModule.jsx` ItemRow.
+
+---
+
+## 3) Backward Compatibility ✅
+- Semua field baru **opsional**:
+  - `buyer_catalog_id` (PO item, Sample)
+  - `force_price_drift` (PO create/update)
+  - `template_id` (apply-to-po; optional karena auto-pick active)
+- PO existing tanpa link tetap valid.
+- Sample existing tanpa link tetap valid.
+
+---
+
+## 4) Testing ✅
+- ✅ Manual smoke test (backend + UI) untuk:
+  - price history timeline
+  - drift badges
+  - autocomplete
+  - bom templates UI + apply-to-po
+- ✅ Testing agent report: `/app/test_reports/iteration_13.json`
+  - Backend: **27/28 PASS (96.4%)**
+  - 1 minor: sequencing artifact (delete active template sebelum auto-select test) — **bukan bug**.
+  - Regression: 3/3 PASS.
+
+---
+
+## 5) Files Changed (Phase M2)
+**Files Created**
+- `backend/routes/dewi_maklon_bom_templates.py`
+- `frontend/src/components/erp/MaklonArtikelAutocomplete.jsx`
+- `frontend/src/components/erp/MaklonBuyerCatalogDetailDialog.jsx`
+
+**Files Modified**
+- `backend/routes/dewi_maklon_buyer_catalog.py` (price history + drift helpers + endpoints)
+- `backend/routes/dewi_maklon_pos.py` (drift guardrail + record history + force flag)
+- `backend/routes/dewi_maklon_samples.py` (buyer_catalog_id + auto-fill + filter)
+- `backend/server.py` (router registration + indexes)
+- `frontend/src/components/erp/MaklonPOModule.jsx` (autocomplete + drift UX + Apply BOM Template)
+- `frontend/src/components/erp/MaklonBuyerCatalogModule.jsx` (Detail button + dialog mount)
+- `frontend/src/components/erp/MaklonSampleManagement.jsx` (catalog picker in SampleDialog)
+
+---
+
+## 6) Success Criteria (Phase M2) — Achieved ✅
+- ✅ Buyer Catalog menjadi pusat referensi Maklon (tanpa mengganggu proses PO existing).
+- ✅ Audit trail kuat untuk harga dan spek.
+- ✅ Input PO lebih cepat + minim typo (autocomplete).
+- ✅ Governance harga via drift warning/block + force flag.
+
+---
+
+# Development Plan — Phase M3 ⏳ OPTIONAL (Future Enhancements)
+
+> **Tujuan:** memperketat governance dan analytics setelah M2 stabil.
+
+## 1) Objectives (Phase M3)
+- Menambah enforcement policy, analytics, dan workflow approval.
+
+## 2) Implementation Steps (Phase M3)
+1. **Sample reuse policy enforcement**
+   - Opsional: block confirm PO jika belum ada sample approved untuk catalog.
+2. **BOM Template usage analytics**
+   - Track template version paling sering dipakai + ROI (waktu hemat).
+3. **Price drift dashboard**
+   - Dashboard cross-catalog: top drift events, trend, heatmap.
+4. **Approval workflow untuk force_price_drift**
+   - Manager sign-off, audit trail lebih ketat.
+
+## 3) Success Criteria (Phase M3)
+- Governance Maklon lebih kuat (approval + analytics) tanpa menurunkan usability.
