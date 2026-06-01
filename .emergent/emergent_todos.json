@@ -40,7 +40,7 @@
     "status": "completed"
   },
   {
-    "content": "Final E2E testing dengan testing agent",
-    "status": "in_progress"
+    "content": "Final E2E testing (testing agent + manual screenshot)",
+    "status": "completed"
   }
 ]
