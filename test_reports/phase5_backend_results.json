@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-05-31T18:08:45.544709",
+  "total_tests": 6,
+  "passed_tests": 6,
+  "failed_tests": 0,
+  "success_rate": "100.0%",
+  "test_results": [
+    {
+      "test": "Login with admin@garment.com",
+      "passed": true,
+      "details": ""
+    },
+    {
+      "test": "GET /api/hr/expenses/master-categories",
+      "passed": true,
+      "details": "Found 14 categories"
+    },
+    {
+      "test": "POST /api/hr/expenses/master-categories/seed-default",
+      "passed": true,
+      "details": "Seeded: 0, Skipped: 13"
+    },
+    {
+      "test": "POST /api/hr/expenses/master-categories (create)",
+      "passed": true,
+      "details": "Created category: Test Category 180845"
+    },
+    {
+      "test": "GET /api/procurement/request-types",
+      "passed": true,
+      "details": "Found all 8 types: asset, consumable, service, subscription, maintenance, rental, project, other"
+    },
+    {
+      "test": "POST /api/hr/expenses/gl-mappings/seed-default",
+      "passed": true,
+      "details": "Seeded: 1, Skipped: 14, Warnings: 1"
+    }
+  ]
+}

@@ -1,0 +1,978 @@
+"""
+Background scheduler for CV. Dewi Aditya ERP.
+Uses APScheduler AsyncIOScheduler running inside the FastAPI event loop.
+
+Currently registered jobs:
+- scan_overdue_invoices: runs once a day at 08:00 server time. Idempotent.
+  Logs each run to `dewi_scheduler_runs` for admin audit.
+
+To add a new job: register it inside register_jobs(scheduler) below.
+"""
+import logging
+import uuid
+from datetime import datetime, timezone
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from database import get_db
+
+logger = logging.getLogger(__name__)
+
+# Module-level singleton; set by start_scheduler(), used by API to introspect.
+_scheduler: AsyncIOScheduler | None = None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# JOBS
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def job_scan_overdue_invoices():
+    """Run notification scan-overdue. Idempotent (won't duplicate notifs)."""
+    db = get_db()
+    started = datetime.now(timezone.utc)
+    run_doc = {
+        'job_id': 'scan_overdue_invoices',
+        'started_at': started,
+        'status': 'running',
+    }
+    res = await db.dewi_scheduler_runs.insert_one(run_doc)
+    run_id = res.inserted_id
+
+    try:
+        from routes.dewi_notifications import queue_for_client
+        from datetime import date
+
+        today = date.today().isoformat()
+        invoices = await db.dewi_maklon_invoices.find({
+            'status': {'$in': ['issued', 'partial_paid', 'overdue']},
+            'balance_amount': {'$gt': 0},
+            'due_date': {'$lt': today},
+        }).to_list(length=5000)
+
+        queued = 0
+        for inv in invoices:
+            existing = await db.notifications.find_one({
+                'type':        'dewi',
+                'subtype':     'invoice_overdue',
+                'source_ref':  inv.get('id'),
+            })
+            if existing:
+                continue
+            client_id = inv.get('client_id')
+            if not client_id:
+                continue
+            body = (
+                f"Invoice {inv.get('invoice_number')} sebesar Rp "
+                f"{int(inv.get('balance_amount', 0)):,} sudah lewat jatuh tempo "
+                f"({inv.get('due_date')}). Mohon segera lakukan pembayaran."
+            ).replace(',', '.')
+            ids = await queue_for_client(
+                db,
+                client_id=client_id,
+                subject=f"[OVERDUE] Invoice {inv.get('invoice_number')}",
+                body=body,
+                event_type='invoice_overdue',
+                source_ref=inv.get('id'),
+                meta={
+                    'invoice_number': inv.get('invoice_number'),
+                    'balance': inv.get('balance_amount'),
+                    'auto_run': True,
+                },
+            )
+            queued += len(ids)
+
+        finished = datetime.now(timezone.utc)
+        await db.dewi_scheduler_runs.update_one(
+            {'_id': run_id},
+            {'$set': {
+                'status': 'success',
+                'finished_at': finished,
+                'duration_ms': int((finished - started).total_seconds() * 1000),
+                'invoices_checked': len(invoices),
+                'notifs_queued': queued,
+            }},
+        )
+        logger.info(
+            f"[scheduler] scan_overdue_invoices: checked={len(invoices)} queued={queued}"
+        )
+        return {'invoices_checked': len(invoices), 'notifs_queued': queued}
+    except Exception as e:
+        logger.exception("[scheduler] scan_overdue_invoices failed")
+        await db.dewi_scheduler_runs.update_one(
+            {'_id': run_id},
+            {'$set': {
+                'status': 'failed',
+                'finished_at': datetime.now(timezone.utc),
+                'error': str(e),
+            }},
+        )
+        raise
+
+
+async def job_birthday_anniversary_reminders():
+    """Daily 07:00 — scan employees for birthday & work-anniversary today, notify HR."""
+    db = get_db()
+    started = datetime.now(timezone.utc)
+    run_doc = {'job_id': 'birthday_anniversary_reminders', 'started_at': started, 'status': 'running'}
+    res = await db.dewi_scheduler_runs.insert_one(run_doc)
+    run_id = res.inserted_id
+    try:
+        from datetime import date
+        today = date.today()
+        mm = f"{today.month:02d}"
+        dd = f"{today.day:02d}"
+        # Find employees born on this date
+        emps = await db.rahaza_employees.find(
+            {"active": True},
+            {"_id": 0, "id": 1, "name": 1, "employee_code": 1, "birth_date": 1, "joined_at": 1}
+        ).to_list(length=10000)
+
+        bdays, annivs = [], []
+        for e in emps:
+            bd = e.get("birth_date") or ""
+            if len(bd) >= 10 and bd[5:10] == f"{mm}-{dd}":
+                try:
+                    year = int(bd[:4])
+                    age = today.year - year
+                except Exception:
+                    age = 0
+                bdays.append({"name": e["name"], "code": e["employee_code"], "age": age})
+
+            ja = e.get("joined_at") or ""
+            if len(ja) >= 10 and ja[5:10] == f"{mm}-{dd}":
+                try:
+                    year = int(ja[:4])
+                    years = today.year - year
+                except Exception:
+                    years = 0
+                if years > 0:
+                    annivs.append({"name": e["name"], "code": e["employee_code"], "years": years})
+
+        # Queue notifications to HR admins (SSOT type='rahaza')
+        created = 0
+        if bdays or annivs:
+            from routes.rahaza_notifications import publish_notification
+
+            # Find HR recipients
+            hr_users = await db.users.find(
+                {"role": {"$in": ["superadmin", "admin", "owner", "hr", "manager"]}},
+                {"_id": 0, "id": 1, "name": 1}
+            ).to_list(100)
+            hr_user_ids = [u["id"] for u in hr_users if u.get("id")]
+
+            for bd in bdays:
+                title = f"🎂 Ulang Tahun: {bd['name']} ({bd['age']} thn)"
+                body_msg = f"{bd['code']} — {bd['name']} berulang tahun hari ini. Kirim ucapan!"
+                if hr_user_ids:
+                    await publish_notification(
+                        db,
+                        type_='birthday',
+                        severity='info',
+                        title=title,
+                        message=body_msg,
+                        link_module='hris_employees',
+                        link_id=bd['code'],
+                        target_user_ids=hr_user_ids,
+                        target_roles=["superadmin", "admin", "owner", "hr", "manager"],
+                        dedup_key=f"birthday::{bd['code']}::{started.date().isoformat()}",
+                    )
+                    created += 1
+            for av in annivs:
+                title = f"🎉 Work Anniversary: {av['name']} ({av['years']} tahun)"
+                body_msg = (
+                    f"{av['code']} — {av['name']} merayakan {av['years']} tahun bekerja. "
+                    f"Berikan apresiasi!"
+                )
+                if hr_user_ids:
+                    await publish_notification(
+                        db,
+                        type_='anniversary',
+                        severity='info',
+                        title=title,
+                        message=body_msg,
+                        link_module='hris_employees',
+                        link_id=av['code'],
+                        target_user_ids=hr_user_ids,
+                        target_roles=["superadmin", "admin", "owner", "hr", "manager"],
+                        dedup_key=f"anniversary::{av['code']}::{started.date().isoformat()}",
+                    )
+                    created += 1
+
+        await db.dewi_scheduler_runs.update_one(
+            {'_id': run_id},
+            {'$set': {'status': 'success', 'finished_at': datetime.now(timezone.utc),
+                      'result': {'birthdays': len(bdays), 'anniversaries': len(annivs), 'notifs_queued': created}}}
+        )
+        logger.info(f"[scheduler] birthday/anniversary: {len(bdays)} bd, {len(annivs)} anv, {created} notifs")
+        return {'birthdays': len(bdays), 'anniversaries': len(annivs), 'notifs_queued': created}
+    except Exception as e:
+        logger.exception("[scheduler] birthday job failed")
+        await db.dewi_scheduler_runs.update_one(
+            {'_id': run_id},
+            {'$set': {'status': 'failed', 'finished_at': datetime.now(timezone.utc), 'error': str(e)}}
+        )
+        raise
+
+
+# Registry of jobs that admin API can introspect & trigger manually.
+async def job_kpi_deadline_reminders():
+    """
+    Daily job (09:00): cek periode KPI dengan close_date 7, 3, atau 1 hari lagi.
+    Kirim notifikasi ke HR dan karyawan yang belum mengisi form.
+    """
+    from routes.rahaza_notifications import publish_notification
+    from datetime import date
+
+    db = get_db()
+    today = date.today()
+    started = datetime.now(timezone.utc)
+
+    run_doc = {
+        'job_id': 'kpi_deadline_reminders',
+        'started_at': started,
+        'status': 'running',
+    }
+    res = await db.dewi_scheduler_runs.insert_one(run_doc)
+    run_id = res.inserted_id
+
+    sent = 0
+    try:
+        # Find open periods with close_date in 7, 3, or 1 days
+        open_periods = await db.da_kpi_periods.find(
+            {"status": "open"},
+            {"_id": 0, "period_id": 1, "name": 1, "close_date": 1, "participant_employee_ids": 1}
+        ).to_list(2000)
+
+        for period in open_periods:
+            close_date_str = period.get("close_date")
+            if not close_date_str:
+                continue
+
+            try:
+                close_date = date.fromisoformat(close_date_str[:10])
+            except Exception:
+                continue
+
+            days_left = (close_date - today).days
+            if days_left not in (7, 3, 1):
+                continue
+
+            period_name = period.get("name", "")
+            participant_ids = period.get("participant_employee_ids", [])
+
+            # Find employees who haven't submitted self-assessment
+            submitted_ids = await db.da_kpi_submissions.distinct(
+                "evaluator_id",
+                {"period_id": period["period_id"], "eval_type": "self", "status": "submitted"}
+            )
+            pending_ids = [eid for eid in participant_ids if eid not in submitted_ids]
+
+            # Get user_ids for pending employees
+            pending_emps = await db.rahaza_employees.find(
+                {"id": {"$in": pending_ids}},
+                {"_id": 0, "id": 1, "name": 1, "user_id": 1}
+            ).to_list(2000)
+
+            pending_user_ids = [e["user_id"] for e in pending_emps if e.get("user_id")]
+
+            urgency = "‼️" if days_left == 1 else ("⚠️" if days_left == 3 else "🔔")
+            msg_prefix = "MENDESAK: " if days_left == 1 else ""
+
+            # Notify pending employees
+            if pending_user_ids:
+                dedup = f"kpi_emp_deadline_{period['period_id']}_{days_left}d"
+                await publish_notification(
+                    db,
+                    type_="kpi_deadline",
+                    severity="warning" if days_left <= 3 else "info",
+                    title=f"{urgency} {msg_prefix}KPI Self-Assessment — {days_left} hari lagi",
+                    message=(
+                        f"{msg_prefix}Form self-assessment KPI periode '{period_name}' "
+                        f"akan ditutup dalam {days_left} hari ({close_date_str}). "
+                        f"Segera isi sebelum deadline!"
+                    ),
+                    link_module="kpi_portal",
+                    link_id=period["period_id"],
+                    target_user_ids=pending_user_ids,
+                    dedup_key=dedup,
+                )
+                sent += len(pending_user_ids)
+
+            # Notify HR about pending count
+            dedup_hr = f"kpi_hr_deadline_{period['period_id']}_{days_left}d"
+            await publish_notification(
+                db,
+                type_="kpi_deadline",
+                severity="warning" if days_left <= 3 else "info",
+                title=f"{urgency} KPI Deadline: {days_left} hari lagi — {period_name}",
+                message=(
+                    f"{len(pending_ids)} karyawan belum mengisi self-assessment untuk periode '{period_name}'. "
+                    f"Deadline: {close_date_str} ({days_left} hari lagi)."
+                ),
+                link_module="hr_kpi",
+                link_id=period["period_id"],
+                target_roles=["hr", "superadmin", "admin"],
+                dedup_key=dedup_hr,
+            )
+            sent += 1
+
+        await db.dewi_scheduler_runs.update_one(
+            {'_id': run_id},
+            {'$set': {'status': 'ok', 'sent': sent, 'finished_at': datetime.now(timezone.utc)}}
+        )
+    except Exception as e:
+        logger.exception("[scheduler] kpi_deadline_reminders error: %s", e)
+        await db.dewi_scheduler_runs.update_one(
+            {'_id': run_id},
+            {'$set': {'status': 'error', 'error': str(e), 'finished_at': datetime.now(timezone.utc)}}
+        )
+
+
+async def job_auto_create_tasks_from_templates():
+    """
+    Auto-create task dari marketing_task_templates berdasarkan recurrence config.
+    Dijalankan setiap hari pukul 06:00.
+    Recurrence types:
+      - daily     : buat task setiap hari
+      - weekly    : buat task pada hari tertentu (recurrence_config.day_of_week: 0=Mon, 6=Sun)
+      - monthly   : buat task pada tanggal tertentu (recurrence_config.day_of_month: 1-31)
+    Idempotent: cek apakah task dengan template_id + due_date hari ini sudah ada.
+    """
+    db = get_db()
+    run_id = (await db.dewi_scheduler_runs.insert_one({
+        'job': 'auto_create_tasks_from_templates',
+        'started_at': datetime.now(timezone.utc),
+        'status': 'running',
+    })).inserted_id
+
+    try:
+        today = datetime.now(timezone.utc).date()
+        today_str = today.isoformat()
+        weekday = today.weekday()      # 0=Monday, 6=Sunday
+        day_of_month = today.day
+
+        templates = await db.marketing_task_templates.find(
+            {'is_active': True}, {'_id': 0}
+        ).to_list(2000)
+
+        created = 0
+        skipped = 0
+
+        for tmpl in templates:
+            recurrence = tmpl.get('recurrence', 'none')
+            cfg = tmpl.get('recurrence_config') or {}
+
+            # Decide if we should create today
+            should_create = False
+            if recurrence == 'daily':
+                should_create = True
+            elif recurrence == 'weekly':
+                target_day = int(cfg.get('day_of_week', 0))
+                should_create = (weekday == target_day)
+            elif recurrence == 'monthly':
+                target_day = int(cfg.get('day_of_month', 1))
+                should_create = (day_of_month == target_day)
+
+            if not should_create:
+                skipped += 1
+                continue
+
+            # Idempotency: skip if task already created today from this template
+            existing = await db.marketing_tasks.find_one({
+                'template_id': tmpl['id'],
+                'due_date': today_str,
+            })
+            if existing:
+                skipped += 1
+                continue
+
+            # Generate task code
+            count = await db.marketing_tasks.count_documents({})
+            task_code = f"TKS-{str(count + 1 + created).zfill(4)}"
+
+            task_doc = {
+                'id': str(uuid.uuid4()),
+                'task_code': task_code,
+                'template_id': tmpl['id'],
+                'title': tmpl.get('title', ''),
+                'description': tmpl.get('description', ''),
+                'task_type': tmpl.get('task_type', 'regular'),
+                'recurrence': recurrence,
+                'recurrence_config': cfg,
+                'assigned_to': None,          # Template assigns by role, not user
+                'assigned_role': tmpl.get('default_assigned_role'),
+                'assigned_by': 'scheduler',
+                'account_id': tmpl.get('account_id'),
+                'priority': tmpl.get('priority', 'medium'),
+                'due_date': today_str,
+                'status': 'to_do',
+                'checklist': [
+                    {'text': item, 'done': False}
+                    for item in (tmpl.get('checklist_template') or [])
+                ],
+                'attachments': [],
+                'completion_notes': '',
+                'approval_status': None,
+                'approved_by': None,
+                'approved_at': None,
+                'auto_created': True,
+                'created_at': datetime.now(timezone.utc),
+                'updated_at': datetime.now(timezone.utc),
+            }
+
+            await db.marketing_tasks.insert_one(task_doc)
+            created += 1
+
+        await db.dewi_scheduler_runs.update_one(
+            {'_id': run_id},
+            {'$set': {
+                'status': 'ok',
+                'created': created,
+                'skipped': skipped,
+                'templates_checked': len(templates),
+                'finished_at': datetime.now(timezone.utc),
+            }}
+        )
+
+        logger.info("[scheduler] auto_create_tasks: created=%d, skipped=%d", created, skipped)
+
+    except Exception as e:
+        logger.exception("[scheduler] auto_create_tasks error: %s", e)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# P1-7: FILE CLEANUP JOB (Marketing Uploads > 30 Days)
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def job_cleanup_old_marketing_uploads():
+    """
+    Session 12 P1-7: Hapus file upload marketing yang lebih dari 30 hari.
+    Runs every day at 02:00 AM.
+    """
+    from datetime import datetime, timezone, timedelta
+    from pathlib import Path
+    
+    try:
+        uploads_dir = Path("/app/uploads/marketing")
+        
+        if not uploads_dir.exists():
+            logger.info("[scheduler] cleanup_uploads: /app/uploads/marketing not found, skipping")
+            return
+        
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
+        deleted_count = 0
+        deleted_size = 0
+        
+        # Scan all files in marketing uploads
+        for file_path in uploads_dir.rglob("*"):
+            if file_path.is_file():
+                # Get file modification time
+                file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
+                
+                if file_mtime < cutoff_date:
+                    try:
+                        file_size = file_path.stat().st_size
+                        file_path.unlink()
+                        deleted_count += 1
+                        deleted_size += file_size
+                        logger.info(f"[scheduler] cleanup_uploads: deleted {file_path.name} (age: {(datetime.now(timezone.utc) - file_mtime).days} days)")
+                    except Exception as e:
+                        logger.error(f"[scheduler] cleanup_uploads: failed to delete {file_path}: {e}")
+        
+        deleted_size_mb = deleted_size / (1024 * 1024)
+        logger.info(f"[scheduler] cleanup_uploads: deleted {deleted_count} files, freed {deleted_size_mb:.2f} MB")
+        
+    except Exception as e:
+        # Note: This job doesn't register a scheduler_runs entry so we can't update
+        # error status here. Just log the exception. (Session #11.17: removed undefined
+        # `db` and `run_id` references that triggered ruff F821.)
+        logger.exception("[scheduler] cleanup_uploads error: %s", e)
+
+
+async def job_marketing_alerts():
+    """
+    Marketing Alert Engine — evaluates conditions and publishes in-app notifications.
+    Runs every 30 minutes. Covers: expiring discounts, SLA breaches,
+    upcoming product launches, and content scheduled today.
+    """
+    db = get_db()
+    try:
+        from routes.marketing_alerts import evaluate_marketing_alerts
+        result = await evaluate_marketing_alerts(db=db)
+        fired = result.get("total_fired", 0)
+        logger.info(f"[scheduler] job_marketing_alerts: fired {fired} alerts")
+    except Exception as e:
+        logger.exception(f"[scheduler] job_marketing_alerts error: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# JOB: AUTO-CREATE MARKETING ACTIONABLE TASKS (Phase 4)
+# ══════════════════════════════════════════════════════════════════════════════
+async def job_auto_create_marketing_tasks():
+    """
+    Auto-generate actionable marketing tasks based on business events:
+    1. Missing sales data: For each active account, if yesterday's sales not yet entered,
+       create task type='data_entry' with related_entity='sales_data' and pre-filled account_id+date.
+    2. Health drop alert: For each account with health_score < 60 (and no recent alert task),
+       create task type='analysis' with related_entity='manual_check' to investigate.
+    
+    Runs daily at 10:00 (after morning import window).
+    """
+    import uuid as _uuid
+    from datetime import timedelta
+    
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    created_sales_tasks = 0
+    created_health_tasks = 0
+    
+    try:
+        # ─── 1. MISSING SALES DATA TASKS ───
+        active_accounts = await db.marketing_platform_accounts.find(
+            {"status": "active"}, {"_id": 0}
+        ).to_list(500)
+        
+        for acc in active_accounts:
+            account_id = acc.get("id")
+            account_name = acc.get("account_name") or acc.get("name", "")
+            if not account_id:
+                continue
+            
+            # Check if sales data already entered for yesterday
+            existing_sales = await db.marketing_sales_data.find_one({
+                "account_id": account_id,
+                "date": yesterday,
+            }, {"_id": 0})
+            if existing_sales:
+                continue
+            
+            # Check if task already created today for same purpose
+            existing_task = await db.marketing_tasks.find_one({
+                "account_id": account_id,
+                "related_entity": "sales_data",
+                "related_form_data.date": yesterday,
+                "status": {"$ne": "cancelled"},
+            }, {"_id": 0})
+            if existing_task:
+                continue
+            
+            # Create actionable task
+            task_doc = {
+                "id": str(_uuid.uuid4()),
+                "task_code": f"TSK-{now.strftime('%Y%m%d')}-{_uuid.uuid4().hex[:6].upper()}",
+                "title": f"Input Sales Harian — {account_name} ({yesterday})",
+                "description": f"Sales data untuk {account_name} pada tanggal {yesterday} belum diinput. Mohon segera input revenue/orders/visitors.",
+                "task_type": "data_entry",
+                "recurrence": "one-time",
+                "recurrence_config": {},
+                "assigned_to": acc.get("pic_user_id"),  # PIC of this account, if set
+                "assigned_by": "system",
+                "account_id": account_id,
+                "priority": "high",
+                "due_date": None,
+                "status": "to_do",
+                "checklist": [],
+                "attachments": [],
+                "completion_notes": "",
+                "approval_status": None,
+                "approved_by": None,
+                "approved_at": None,
+                "related_entity": "sales_data",
+                "related_entity_id": None,
+                "related_form_data": {
+                    "account_id": account_id,
+                    "date": yesterday,
+                },
+                "action_type": "submit_form",
+                "action_executed_at": None,
+                "action_result": None,
+                "source": "auto_generated",
+                "created_at": now,
+                "updated_at": now,
+            }
+            await db.marketing_tasks.insert_one(task_doc)
+            created_sales_tasks += 1
+
+            # ── Kirim in-app notification ke PIC ──
+            pic_id = acc.get("pic_user_id")
+            if pic_id:
+                try:
+                    from routes.rahaza_notifications import publish_notification
+                    await publish_notification(
+                        db,
+                        type_="marketing_task_created",
+                        severity="info",
+                        title=f"Task Baru: Input Sales {account_name}",
+                        message=f"Sales data {account_name} untuk {yesterday} belum diinput. Silakan eksekusi dari Laporan Harian atau Kanban.",
+                        link_module="marketing-daily-report",
+                        target_user_ids=[pic_id],
+                        dedup_key=f"sales_task_notif_{account_id}_{yesterday}",
+                    )
+                except Exception as _ne:
+                    logger.warning(f"[scheduler] Gagal kirim notif sales task: {_ne}")
+        
+        # ─── 2. HEALTH SCORE DROP TASKS ───
+        critical_accounts = [
+            a for a in active_accounts
+            if a.get("health_score") is not None and a.get("health_score") < 60
+        ]
+        
+        for acc in critical_accounts:
+            account_id = acc.get("id")
+            account_name = acc.get("account_name") or acc.get("name", "")
+            health = acc.get("health_score", 0)
+            
+            # Check if alert task already created in last 7 days
+            week_ago = now - timedelta(days=7)
+            existing_alert = await db.marketing_tasks.find_one({
+                "account_id": account_id,
+                "task_type": "analysis",
+                "title": {"$regex": "Health Score", "$options": "i"},
+                "created_at": {"$gte": week_ago},
+                "status": {"$ne": "cancelled"},
+            }, {"_id": 0})
+            if existing_alert:
+                continue
+            
+            task_doc = {
+                "id": str(_uuid.uuid4()),
+                "task_code": f"TSK-{now.strftime('%Y%m%d')}-{_uuid.uuid4().hex[:6].upper()}",
+                "title": f"⚠️ Health Score Drop — {account_name} ({health}/100)",
+                "description": f"Akun {account_name} memiliki health score kritis ({health}/100). Mohon investigasi:\n"
+                               f"• Cek complaint/return rate\n• Cek response rate ke customer\n• Cek shipping performance",
+                "task_type": "analysis",
+                "recurrence": "one-time",
+                "recurrence_config": {},
+                "assigned_to": acc.get("pic_user_id"),
+                "assigned_by": "system",
+                "account_id": account_id,
+                "priority": "high",
+                "due_date": None,
+                "status": "to_do",
+                "checklist": [
+                    {"item": "Review 7-day complaint trend", "completed": False},
+                    {"item": "Review return rate breakdown", "completed": False},
+                    {"item": "Check shipping/cancellation rate", "completed": False},
+                    {"item": "Create improvement plan", "completed": False},
+                ],
+                "attachments": [],
+                "completion_notes": "",
+                "approval_status": None,
+                "approved_by": None,
+                "approved_at": None,
+                "related_entity": "manual_check",
+                "related_entity_id": None,
+                "related_form_data": {"account_id": account_id, "health_score": health},
+                "action_type": "manual_check",
+                "action_executed_at": None,
+                "action_result": None,
+                "source": "auto_generated_health_alert",
+                "created_at": now,
+                "updated_at": now,
+            }
+            await db.marketing_tasks.insert_one(task_doc)
+            created_health_tasks += 1
+
+            # ── Kirim in-app notification ke PIC ──
+            pic_id = acc.get("pic_user_id")
+            if pic_id:
+                try:
+                    from routes.rahaza_notifications import publish_notification
+                    await publish_notification(
+                        db,
+                        type_="marketing_health_alert",
+                        severity="warning",
+                        title=f"⚠️ Health Score Kritis: {account_name}",
+                        message=f"Akun {account_name} health score turun ke {health}/100. Task investigasi sudah dibuat.",
+                        link_module="marketing-tasks",
+                        target_user_ids=[pic_id],
+                        dedup_key=f"health_alert_notif_{account_id}_{now.strftime('%Y-%m-%d')}",
+                    )
+                except Exception as _ne:
+                    logger.warning(f"[scheduler] Gagal kirim notif health alert: {_ne}")
+        
+        logger.info(
+            f"[scheduler] job_auto_create_marketing_tasks: "
+            f"created {created_sales_tasks} sales tasks, {created_health_tasks} health alerts"
+        )
+    except Exception as e:
+        logger.exception(f"[scheduler] job_auto_create_marketing_tasks error: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# JOB: SCAN OVERDUE MARKETING TASKS — kirim notif ke assigned + PIC
+# ══════════════════════════════════════════════════════════════════════════════
+async def job_scan_overdue_marketing_tasks():
+    """
+    Scan marketing tasks yang overdue (due_date < now, status masih to_do/in_progress).
+    Kirim in-app notification ke:
+    - User yang di-assign (assigned_to)
+    - PIC akun terkait (pic_user_id dari marketing_platform_accounts)
+
+    Dedup: 1 notif per task per hari, cegah spam.
+    Runs daily 17:00 WIB.
+    """
+    db  = get_db()
+    now = datetime.now(timezone.utc)
+    today_str = now.strftime("%Y-%m-%d")
+
+    try:
+        overdue_tasks = await db.marketing_tasks.find(
+            {
+                "status":   {"$in": ["to_do", "in_progress"]},
+                "due_date": {"$lt": now.isoformat()},
+            },
+            {"_id": 0}
+        ).to_list(500)
+
+        if not overdue_tasks:
+            logger.info("[scheduler] job_scan_overdue_marketing_tasks: tidak ada task overdue")
+            return
+
+        from routes.rahaza_notifications import publish_notification
+
+        notif_count = 0
+        for task in overdue_tasks:
+            task_id    = task.get("id", "")
+            title      = task.get("title", "")[:60]
+            account_id = task.get("account_id")
+            assigned   = task.get("assigned_to")
+
+            # Resolve PIC dari akun
+            pic_id = None
+            acc_name = ""
+            if account_id:
+                acc = await db.marketing_platform_accounts.find_one(
+                    {"id": account_id}, {"_id": 0, "pic_user_id": 1, "account_name": 1}
+                )
+                if acc:
+                    pic_id   = acc.get("pic_user_id")
+                    acc_name = acc.get("account_name", "")
+
+            # Kumpulkan user target (dedup)
+            target_ids = list({u for u in [assigned, pic_id] if u})
+            if not target_ids:
+                continue
+
+            dedup_key = f"overdue_task_{task_id}_{today_str}"
+            await publish_notification(
+                db,
+                type_="marketing_task_overdue",
+                severity="warning",
+                title=f"Task Overdue: {title}",
+                message=(
+                    f"Task '{title}'"
+                    + (f" [{acc_name}]" if acc_name else "")
+                    + " sudah melewati due date dan belum selesai. Segera selesaikan."
+                ),
+                link_module="marketing-tasks",
+                link_id=task_id,
+                target_user_ids=target_ids,
+                dedup_key=dedup_key,
+            )
+            notif_count += 1
+
+        logger.info(
+            f"[scheduler] job_scan_overdue_marketing_tasks: "
+            f"{len(overdue_tasks)} overdue tasks, {notif_count} notif sent"
+        )
+    except Exception as e:
+        logger.exception(f"[scheduler] job_scan_overdue_marketing_tasks error: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# JOB: LEAVE CARRY-FORWARD — setiap 1 Januari
+# ══════════════════════════════════════════════════════════════════════════════
+async def job_leave_carry_forward():
+    """
+    Carry-forward saldo cuti yang tersisa ke tahun berikutnya.
+    Rules:
+    - Hanya tipe cuti yang paid=True dan unpaid=False
+    - Maksimal carry: min(remaining, max_carry_days) — default max 5 hari
+    - Idempotent: skip jika balance tahun baru sudah dibuat
+    Runs: 1 Januari pukul 01:00
+    """
+    db  = get_db()
+    now = datetime.now(timezone.utc)
+    new_year = now.year
+    old_year = new_year - 1
+
+    logger.info(f"[scheduler] job_leave_carry_forward: carry {old_year} → {new_year}")
+
+    try:
+        # Fetch leave types yang bisa carry forward
+        carryable_types = await db.rahaza_leave_types.find(
+            {"active": True, "unpaid": {"$ne": True}},
+            {"_id": 0, "id": 1, "name": 1, "quota_default": 1, "max_carry_days": 1}
+        ).to_list(100)
+
+        if not carryable_types:
+            logger.info("[scheduler] job_leave_carry_forward: no carryable leave types")
+            return
+
+        # Fetch active employees
+        employees = await db.rahaza_employees.find(
+            {"active": True}, {"_id": 0, "id": 1, "name": 1}
+        ).to_list(500)
+
+        carry_count = 0
+        for emp in employees:
+            emp_id = emp["id"]
+            for lt in carryable_types:
+                lt_id       = lt["id"]
+                max_carry   = int(lt.get("max_carry_days") or 5)  # default 5 hari carry
+
+                # Cek balance tahun lama
+                old_bal = await db.rahaza_leave_balances.find_one(
+                    {"employee_id": emp_id, "leave_type_id": lt_id, "year": old_year},
+                    {"_id": 0}
+                )
+                if not old_bal:
+                    continue
+
+                remaining = float(old_bal.get("allocated", 0)) - float(old_bal.get("used", 0))
+                carry_days = min(max(remaining, 0), max_carry)
+                if carry_days <= 0:
+                    continue
+
+                # Cek apakah balance tahun baru sudah ada
+                new_bal = await db.rahaza_leave_balances.find_one(
+                    {"employee_id": emp_id, "leave_type_id": lt_id, "year": new_year},
+                    {"_id": 0}
+                )
+                if new_bal:
+                    # Sudah ada — tambahkan carry ke allocated
+                    if not new_bal.get("_carry_applied"):
+                        await db.rahaza_leave_balances.update_one(
+                            {"id": new_bal["id"]},
+                            {"$inc": {"allocated": carry_days},
+                             "$set": {"_carry_applied": True, "carry_from_year": old_year,
+                                      "carry_days": carry_days, "updated_at": now}}
+                        )
+                        carry_count += 1
+                else:
+                    # Buat balance baru dengan quota + carry
+                    quota = int(lt.get("quota_default", 12))
+                    doc = {
+                        "id":             str(__import__("uuid").uuid4()),
+                        "employee_id":    emp_id,
+                        "leave_type_id":  lt_id,
+                        "year":           new_year,
+                        "allocated":      quota + carry_days,
+                        "used":           0,
+                        "adjustments":    [],
+                        "_carry_applied": True,
+                        "carry_from_year": old_year,
+                        "carry_days":     carry_days,
+                        "created_at":     now,
+                        "updated_at":     now,
+                    }
+                    await db.rahaza_leave_balances.insert_one(doc)
+                    carry_count += 1
+
+        logger.info(
+            f"[scheduler] job_leave_carry_forward: "
+            f"{carry_count} balances carried forward from {old_year} to {new_year}"
+        )
+    except Exception as e:
+        logger.exception(f"[scheduler] job_leave_carry_forward error: {e}")
+
+
+JOB_REGISTRY = {
+    'scan_overdue_invoices': {
+        'fn': job_scan_overdue_invoices,
+        'description': 'Scan invoice yang sudah lewat jatuh tempo dan kirim notif overdue.',
+        'cron': {'hour': 8, 'minute': 0},
+        'cron_label': 'Setiap hari pukul 08:00',
+    },
+    'birthday_anniversary_reminders': {
+        'fn': job_birthday_anniversary_reminders,
+        'description': 'Cek karyawan yang ulang tahun / work-anniversary hari ini, kirim notif ke HR.',
+        'cron': {'hour': 7, 'minute': 0},
+        'cron_label': 'Setiap hari pukul 07:00',
+    },
+    'kpi_deadline_reminders': {
+        'fn': job_kpi_deadline_reminders,
+        'description': 'Kirim reminder KPI deadline ke karyawan & HR (7/3/1 hari sebelum close_date).',
+        'cron': {'hour': 9, 'minute': 0},
+        'cron_label': 'Setiap hari pukul 09:00',
+    },
+    'auto_create_tasks_from_templates': {
+        'fn': job_auto_create_tasks_from_templates,
+        'description': 'Auto-create task dari template berdasarkan recurrence (daily/weekly/monthly) setiap pagi.',
+        'cron': {'hour': 6, 'minute': 0},
+        'cron_label': 'Setiap hari pukul 06:00',
+    },
+    'marketing_alerts': {
+        'fn': job_marketing_alerts,
+        'description': 'Evaluasi kondisi marketing (expiring discount, SLA breach, upcoming launch, content today) dan kirim notifikasi.',
+        'cron': {'minute': '*/30'},   # Every 30 minutes
+        'cron_label': 'Setiap 30 menit',
+    },
+    'auto_create_marketing_tasks': {
+        'fn': job_auto_create_marketing_tasks,
+        'description': 'Auto-create actionable tasks untuk missing sales data harian + alert health score drop.',
+        'cron': {'hour': 10, 'minute': 0},
+        'cron_label': 'Setiap hari pukul 10:00',
+    },
+    'cleanup_old_marketing_uploads': {
+        'fn': job_cleanup_old_marketing_uploads,
+        'description': 'P1-7: Hapus file upload marketing yang lebih dari 30 hari.',
+        'cron': {'hour': 2, 'minute': 0},   # Every day at 02:00 AM
+        'cron_label': 'Setiap hari pukul 02:00',
+    },
+    'scan_overdue_marketing_tasks': {
+        'fn': job_scan_overdue_marketing_tasks,
+        'description': 'Scan marketing tasks overdue, kirim notifikasi ke assigned user + PIC akun.',
+        'cron': {'hour': 17, 'minute': 0},
+        'cron_label': 'Setiap hari pukul 17:00',
+    },
+    'leave_carry_forward': {
+        'fn': job_leave_carry_forward,
+        'description': 'Carry-forward saldo cuti tahunan ke tahun berikutnya setiap 1 Januari.',
+        'cron': {'month': 1, 'day': 1, 'hour': 1, 'minute': 0},
+        'cron_label': 'Setiap 1 Januari pukul 01:00',
+    },
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LIFECYCLE
+# ══════════════════════════════════════════════════════════════════════════════
+
+def register_jobs(scheduler: AsyncIOScheduler):
+    for job_id, cfg in JOB_REGISTRY.items():
+        scheduler.add_job(
+            cfg['fn'],
+            CronTrigger(**cfg['cron']),
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=300,
+            coalesce=True,
+        )
+
+
+def start_scheduler() -> AsyncIOScheduler:
+    global _scheduler
+    if _scheduler and _scheduler.running:
+        return _scheduler
+    _scheduler = AsyncIOScheduler(timezone='Asia/Jakarta')
+    register_jobs(_scheduler)
+    _scheduler.start()
+    logger.info(
+        "[scheduler] started with jobs: %s",
+        ', '.join(JOB_REGISTRY.keys()),
+    )
+    return _scheduler
+
+
+def stop_scheduler():
+    global _scheduler
+    if _scheduler and _scheduler.running:
+        _scheduler.shutdown(wait=False)
+        logger.info("[scheduler] stopped")
+
+
+def get_scheduler() -> AsyncIOScheduler | None:
+    return _scheduler

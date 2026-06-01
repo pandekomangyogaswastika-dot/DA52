@@ -1,0 +1,1060 @@
+/**
+ * MaklonPOModule — Portal Maklon PO (Production-Maklon Overhaul)
+ * 
+ * Fitur:
+ * - CRUD Maklon PO dengan items/seri grid
+ * - Confirm PO → auto WO + draft AR Invoice
+ * - Multi-dispatch dengan history (bebas urutan, partial)
+ * - Material receive dari klien (kain sudah di-cutting)
+ * - BOM Maklon (estimasi + aktual)
+ * - Finance: post AR ke GL, advance payment (DP)
+ */
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  Package, Plus, Eye, Edit2, CheckCircle2, Clock, RefreshCw, Ban,
+  Truck, FileText, DollarSign, ChevronDown, ChevronUp, Trash2,
+  ArrowRight, BarChart3, AlertCircle, BoxesIcon, Send
+} from 'lucide-react';
+import { GlassCard } from '@/components/ui/glass';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from './EmptyState';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'framer-motion';
+import { PageHeader } from './moduleAtoms';
+
+const API = process.env.REACT_APP_BACKEND_URL;
+
+const STATUS_CONFIG = {
+  draft:              { label: 'Draft',            color: 'bg-slate-500/15 text-slate-300 border-slate-400/30' },
+  confirmed:          { label: 'Dikonfirmasi',     color: 'bg-blue-500/15 text-blue-300 border-blue-400/30' },
+  in_production:      { label: 'Produksi',         color: 'bg-violet-500/15 text-violet-300 border-violet-400/30' },
+  partial_delivered:  { label: 'Sebagian Terkirim',color: 'bg-amber-500/15 text-amber-300 border-amber-400/30' },
+  completed:          { label: 'Selesai',          color: 'bg-green-500/15 text-green-300 border-green-400/30' },
+  invoiced:           { label: 'Ditagih',          color: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30' },
+  cancelled:          { label: 'Dibatalkan',       color: 'bg-red-500/15 text-red-300 border-red-400/30' },
+};
+
+const DISPATCH_STATUS = {
+  draft:              { label: 'Draft',            color: 'bg-slate-500/15 text-slate-300' },
+  packed:             { label: 'Dikemas',          color: 'bg-amber-500/15 text-amber-300' },
+  dispatched:         { label: 'Terkirim',         color: 'bg-green-500/15 text-green-300' },
+  received_by_client: { label: 'Diterima Klien',  color: 'bg-emerald-500/15 text-emerald-300' },
+  cancelled:          { label: 'Dibatalkan',       color: 'bg-red-500/15 text-red-300' },
+};
+
+function StatusBadge({ status, config = STATUS_CONFIG }) {
+  const c = config[status] || config.draft;
+  return <span className={`inline-flex text-[10px] font-semibold px-2 py-0.5 rounded-full border ${c.color}`}>{c.label}</span>;
+}
+
+function fmtRp(v) {
+  if (!v && v !== 0) return '—';
+  return 'Rp ' + Number(v).toLocaleString('id-ID');
+}
+
+function fmtNum(v) {
+  return Number(v || 0).toLocaleString('id-ID');
+}
+
+// ─── ITEM ROW (grid editable) ────────────────────────────────────────────────
+function ItemRow({ item, idx, onChange, onRemove, readOnly }) {
+  const upd = (field, val) => onChange(idx, { ...item, [field]: val });
+  return (
+    <tr className="border-b border-white/5 hover:bg-white/3 transition-colors">
+      <td className="py-2 px-2">
+        <Input value={item.seri_no} onChange={e => upd('seri_no', e.target.value)}
+          className="h-7 text-xs bg-white/5 border-white/10 w-16" placeholder="S01" disabled={readOnly} />
+      </td>
+      <td className="py-2 px-2">
+        <Input value={item.artikel} onChange={e => upd('artikel', e.target.value)}
+          className="h-7 text-xs bg-white/5 border-white/10 w-28" placeholder="DRESS-001" disabled={readOnly} />
+      </td>
+      <td className="py-2 px-2">
+        <Input value={item.color || ''} onChange={e => upd('color', e.target.value)}
+          className="h-7 text-xs bg-white/5 border-white/10 w-20" placeholder="Black" disabled={readOnly} />
+      </td>
+      <td className="py-2 px-2">
+        <Input value={item.size || ''} onChange={e => upd('size', e.target.value)}
+          className="h-7 text-xs bg-white/5 border-white/10 w-16" placeholder="M" disabled={readOnly} />
+      </td>
+      <td className="py-2 px-2">
+        <Input type="number" value={item.qty} onChange={e => upd('qty', parseInt(e.target.value) || 0)}
+          className="h-7 text-xs bg-white/5 border-white/10 w-20" min={1} disabled={readOnly} />
+      </td>
+      <td className="py-2 px-2">
+        <Input type="number" value={item.cmt_rate_per_pcs} onChange={e => upd('cmt_rate_per_pcs', parseFloat(e.target.value) || 0)}
+          className="h-7 text-xs bg-white/5 border-white/10 w-28" min={0} disabled={readOnly} />
+      </td>
+      <td className="py-2 px-2 text-right text-xs text-slate-300">
+        {fmtRp((item.qty || 0) * (item.cmt_rate_per_pcs || 0))}
+      </td>
+      {!readOnly && (
+        <td className="py-2 px-2">
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:bg-red-500/20" onClick={() => onRemove(idx)}>
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </td>
+      )}
+    </tr>
+  );
+}
+
+// ─── PO FORM (Create/Edit) ────────────────────────────────────────────────────
+function POForm({ po, clients, onSave, onClose }) {
+  const isEdit = !!po;
+  const [form, setForm] = useState({
+    client_id: po?.client_id || '',
+    po_date: po?.po_date || new Date().toISOString().split('T')[0],
+    deadline: po?.deadline || '',
+    payment_terms: po?.payment_terms || 'net_30',
+    notes: po?.notes || '',
+    items: po?.items?.map(i => ({
+      seri_no: i.seri_no, artikel: i.artikel, sku_code: i.sku_code || '',
+      color: i.color || '', size: i.size || '', qty: i.qty,
+      cmt_rate_per_pcs: i.cmt_rate_per_pcs || 0,
+    })) || [{ seri_no: 'S01', artikel: '', color: '', size: '', qty: 0, cmt_rate_per_pcs: 0 }],
+  });
+  const [saving, setSaving] = useState(false);
+  const token = window._authToken;
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+
+  const totalQty = form.items.reduce((s, i) => s + (parseInt(i.qty) || 0), 0);
+  const totalValue = form.items.reduce((s, i) => s + ((parseInt(i.qty) || 0) * (parseFloat(i.cmt_rate_per_pcs) || 0)), 0);
+
+  const addItem = () => setForm(f => ({
+    ...f,
+    items: [...f.items, { seri_no: `S${String(f.items.length + 1).padStart(2, '0')}`, artikel: '', color: '', size: '', qty: 0, cmt_rate_per_pcs: 0 }]
+  }));
+
+  const updateItem = (idx, updated) => setForm(f => ({
+    ...f, items: f.items.map((it, i) => i === idx ? updated : it)
+  }));
+
+  const removeItem = (idx) => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+
+  const handleSave = async () => {
+    if (!form.client_id) return toast.error('Pilih klien terlebih dahulu');
+    if (form.items.length === 0) return toast.error('Tambah minimal 1 item');
+    if (form.items.some(i => !i.artikel.trim())) return toast.error('Semua item harus punya artikel');
+    setSaving(true);
+    try {
+      const url = isEdit ? `${API}/api/dewi/maklon/pos/${po.id}` : `${API}/api/dewi/maklon/pos`;
+      const method = isEdit ? 'PUT' : 'POST';
+      const r = await fetch(url, { method, headers, body: JSON.stringify(form) });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Gagal'); }
+      const d = await r.json();
+      toast.success(isEdit ? 'PO berhasil diupdate' : `PO ${d.po_number} berhasil dibuat`);
+      onSave();
+    } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <Label className="text-xs">Klien *</Label>
+          <Select value={form.client_id} onValueChange={v => setForm(f => ({ ...f, client_id: v }))}
+            disabled={isEdit}>
+            <SelectTrigger className="bg-white/5 border-white/10 text-sm">
+              <SelectValue placeholder="Pilih klien" />
+            </SelectTrigger>
+            <SelectContent>
+              {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name} ({c.code})</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Payment Terms</Label>
+          <Select value={form.payment_terms} onValueChange={v => setForm(f => ({ ...f, payment_terms: v }))}>
+            <SelectTrigger className="bg-white/5 border-white/10 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cod">COD</SelectItem>
+              <SelectItem value="net_14">Net 14</SelectItem>
+              <SelectItem value="net_30">Net 30</SelectItem>
+              <SelectItem value="net_60">Net 60</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Tanggal PO</Label>
+          <Input type="date" value={form.po_date} onChange={e => setForm(f => ({ ...f, po_date: e.target.value }))}
+            className="bg-white/5 border-white/10 text-sm" />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Deadline Target</Label>
+          <Input type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))}
+            className="bg-white/5 border-white/10 text-sm" />
+        </div>
+      </div>
+
+      {/* Items Grid */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">Items / Seri *</Label>
+          <Button type="button" size="sm" variant="outline" className="h-7 text-xs border-white/10 hover:bg-white/10"
+            onClick={addItem}>
+            <Plus className="w-3 h-3 mr-1" /> Tambah Baris
+          </Button>
+        </div>
+        <div className="rounded-lg border border-white/10 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-white/5">
+              <tr>
+                {['Seri', 'Artikel', 'Warna', 'Size', 'Qty', 'Rate CMT (Rp)', 'Subtotal', ''].map(h => (
+                  <th key={h} className="text-left py-2 px-2 text-slate-400 font-medium">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {form.items.map((item, idx) => (
+                <ItemRow key={idx} item={item} idx={idx} onChange={updateItem} onRemove={removeItem} />
+              ))}
+            </tbody>
+            <tfoot className="border-t border-white/10 bg-white/3">
+              <tr>
+                <td colSpan={4} className="py-2 px-2 text-xs text-slate-400">Total</td>
+                <td className="py-2 px-2 text-xs font-bold text-white">{fmtNum(totalQty)} pcs</td>
+                <td></td>
+                <td className="py-2 px-2 text-xs font-bold text-green-300 text-right">{fmtRp(totalValue)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">Catatan</Label>
+        <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+          rows={2} className="bg-white/5 border-white/10 text-sm resize-none" placeholder="Catatan tambahan..." />
+      </div>
+
+      <DialogFooter>
+        <Button variant="ghost" onClick={onClose} className="text-slate-400">Batal</Button>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? 'Menyimpan...' : (isEdit ? 'Update PO' : 'Buat PO')}
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
+// ─── DISPATCH FORM ────────────────────────────────────────────────────────────
+function DispatchForm({ po, onSave, onClose }) {
+  const token = window._authToken;
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+
+  const [form, setForm] = useState({
+    dispatch_date: new Date().toISOString().split('T')[0],
+    driver_name: '', vehicle_no: '', notes: '',
+    items: (po?.items || []).map(i => ({
+      item_id: i.item_id,
+      seri_no: i.seri_no,
+      artikel: i.artikel,
+      color: i.color,
+      size: i.size,
+      qty_po: i.qty,
+      qty_dispatched_before: i.qty_dispatched || 0,
+      qty_remaining: (i.qty - (i.qty_dispatched || 0)),
+      qty_to_dispatch: 0,
+      included: false,
+    }))
+  });
+  const [saving, setSaving] = useState(false);
+
+  const toggleItem = (idx) => setForm(f => ({
+    ...f, items: f.items.map((it, i) => i === idx ? { ...it, included: !it.included, qty_to_dispatch: !it.included ? it.qty_remaining : 0 } : it)
+  }));
+
+  const setQty = (idx, qty) => setForm(f => ({
+    ...f, items: f.items.map((it, i) => i === idx ? { ...it, qty_to_dispatch: Math.min(parseInt(qty) || 0, it.qty_remaining) } : it)
+  }));
+
+  const selectedItems = form.items.filter(i => i.included && i.qty_to_dispatch > 0);
+
+  const handleDispatch = async () => {
+    if (selectedItems.length === 0) return toast.error('Pilih minimal 1 item untuk dispatch');
+    setSaving(true);
+    try {
+      const payload = {
+        po_id: po.id,
+        dispatch_date: form.dispatch_date,
+        driver_name: form.driver_name,
+        vehicle_no: form.vehicle_no,
+        notes: form.notes,
+        items: selectedItems.map(i => ({
+          item_id: i.item_id, seri_no: i.seri_no,
+          artikel: i.artikel, color: i.color, size: i.size,
+          qty_dispatched: i.qty_to_dispatch,
+        }))
+      };
+      const r = await fetch(`${API}/api/dewi/maklon/dispatches`, { method: 'POST', headers, body: JSON.stringify(payload) });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Gagal'); }
+      toast.success('Dispatch berhasil dibuat');
+      onSave();
+    } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs">Tanggal Dispatch</Label>
+          <Input type="date" value={form.dispatch_date} onChange={e => setForm(f => ({ ...f, dispatch_date: e.target.value }))}
+            className="bg-white/5 border-white/10 text-sm" />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Nama Driver</Label>
+          <Input value={form.driver_name} onChange={e => setForm(f => ({ ...f, driver_name: e.target.value }))}
+            className="bg-white/5 border-white/10 text-sm" placeholder="Opsional" />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">No. Kendaraan</Label>
+          <Input value={form.vehicle_no} onChange={e => setForm(f => ({ ...f, vehicle_no: e.target.value }))}
+            className="bg-white/5 border-white/10 text-sm" placeholder="B 1234 XY" />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Pilih Items untuk Dispatch (bebas urutan, boleh partial)</Label>
+        <div className="rounded-lg border border-white/10 overflow-hidden">
+          <table className="w-full text-xs">
+            <thead className="bg-white/5">
+              <tr>
+                <th className="py-2 px-2 text-left text-slate-400">Seri</th>
+                <th className="py-2 px-2 text-left text-slate-400">Artikel</th>
+                <th className="py-2 px-2 text-left text-slate-400">Warna/Size</th>
+                <th className="py-2 px-2 text-right text-slate-400">Total PO</th>
+                <th className="py-2 px-2 text-right text-slate-400">Sisa</th>
+                <th className="py-2 px-2 text-center text-slate-400">Kirim</th>
+                <th className="py-2 px-2 text-center text-slate-400">Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              {form.items.map((item, idx) => (
+                <tr key={idx} className={`border-b border-white/5 ${item.included ? 'bg-violet-500/5' : ''}`}>
+                  <td className="py-2 px-2 font-mono text-violet-300">{item.seri_no}</td>
+                  <td className="py-2 px-2">{item.artikel}</td>
+                  <td className="py-2 px-2 text-slate-400">{[item.color, item.size].filter(Boolean).join(' / ')}</td>
+                  <td className="py-2 px-2 text-right">{fmtNum(item.qty_po)}</td>
+                  <td className={`py-2 px-2 text-right font-semibold ${item.qty_remaining === 0 ? 'text-green-400' : 'text-amber-300'}`}>
+                    {item.qty_remaining === 0 ? '✓ Lunas' : fmtNum(item.qty_remaining)}
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    {item.qty_remaining > 0 && (
+                      <input type="checkbox" checked={item.included} onChange={() => toggleItem(idx)}
+                        className="accent-violet-500" />
+                    )}
+                  </td>
+                  <td className="py-2 px-2">
+                    {item.included && (
+                      <Input type="number" value={item.qty_to_dispatch}
+                        onChange={e => setQty(idx, e.target.value)}
+                        max={item.qty_remaining} min={1}
+                        className="h-7 text-xs bg-white/5 border-white/10 w-20 text-center" />
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {selectedItems.length > 0 && (
+          <div className="bg-violet-500/10 border border-violet-400/20 rounded-lg px-3 py-2 text-xs text-violet-300">
+            <strong>Total dispatch ini:</strong> {selectedItems.reduce((s, i) => s + i.qty_to_dispatch, 0)} pcs
+            ({selectedItems.length} item)
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">Catatan</Label>
+        <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+          rows={2} className="bg-white/5 border-white/10 text-sm resize-none" />
+      </div>
+
+      <DialogFooter>
+        <Button variant="ghost" onClick={onClose} className="text-slate-400">Batal</Button>
+        <Button onClick={handleDispatch} disabled={saving || selectedItems.length === 0}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-sm transition-colors">
+          <Truck className="w-4 h-4 mr-2" />
+          {saving ? 'Membuat...' : `Buat Dispatch (${selectedItems.length} item)`}
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
+// ─── PO DETAIL (Full detail view) ────────────────────────────────────────────
+function PODetail({ po, onClose, onRefresh, clients }) {
+  const token = window._authToken;
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [dispatchDialog, setDispatchDialog] = useState(false);
+  const [materialDialog, setMaterialDialog] = useState(false);
+  const [bomDialog, setBomDialog] = useState(false);
+  const [postingAR, setPostingAR] = useState(false);
+  const [expandedDispatch, setExpandedDispatch] = useState(null);
+
+  const fetchDetail = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API}/api/dewi/maklon/pos/${po.id}`, { headers });
+      if (r.ok) setDetail(await r.json());
+    } catch (e) { toast.error('Gagal memuat detail'); }
+    finally { setLoading(false); }
+  }, [po.id, headers]);
+
+  useEffect(() => { fetchDetail(); }, [fetchDetail]);
+
+  const confirmPO = async () => {
+    const r = await fetch(`${API}/api/dewi/maklon/pos/${po.id}/confirm`, { method: 'POST', headers });
+    if (r.ok) { const d = await r.json(); toast.success(`PO dikonfirmasi! ${d.work_orders_created?.length || 0} WO dibuat`); fetchDetail(); onRefresh(); }
+    else { const e = await r.json(); toast.error(e.detail || 'Gagal konfirmasi'); }
+  };
+
+  const confirmDispatch = async (dispatchId) => {
+    const r = await fetch(`${API}/api/dewi/maklon/dispatches/${dispatchId}/confirm`, { method: 'PUT', headers });
+    if (r.ok) { toast.success('Dispatch dikonfirmasi'); fetchDetail(); onRefresh(); }
+    else { const e = await r.json(); toast.error(e.detail || 'Gagal'); }
+  };
+
+  const postAR = async () => {
+    setPostingAR(true);
+    try {
+      const r = await fetch(`${API}/api/dewi/maklon/finance/pos/${po.id}/post-ar`, { method: 'POST', headers });
+      const d = await r.json();
+      if (r.ok) { toast.success(d.already_posted ? 'Sudah pernah dipost sebelumnya' : `AR berhasil dipost ke Finance (${d.je_number})`); fetchDetail(); onRefresh(); }
+      else throw new Error(d.detail || 'Gagal post AR');
+    } catch (e) { toast.error(e.message); }
+    finally { setPostingAR(false); }
+  };
+
+  if (loading) return <div className="flex items-center justify-center h-64 text-slate-400">Memuat...</div>;
+  if (!detail) return null;
+
+  const qtyDispatchedTotal = detail.qty_dispatched || 0;
+  const qtyRemaining = detail.qty_remaining || 0;
+  const progressPct = detail.total_qty > 0 ? Math.round((qtyDispatchedTotal / detail.total_qty) * 100) : 0;
+
+  return (
+    <div className="space-y-4 max-h-[80vh] overflow-y-auto pr-1">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-bold text-white font-mono">{detail.po_number}</h3>
+            <StatusBadge status={detail.status} />
+          </div>
+          <p className="text-sm text-slate-400 mt-0.5">{detail.client_name} — {detail.po_date}</p>
+        </div>
+        <div className="text-right">
+          <div className="text-xl font-bold text-green-300">{fmtRp(detail.total_value)}</div>
+          <div className="text-xs text-slate-400">{fmtNum(detail.total_qty)} pcs total</div>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="bg-white/5 rounded-lg p-3 space-y-2">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-slate-400">Progress Pengiriman</span>
+          <span className="text-white font-semibold">{progressPct}% ({fmtNum(qtyDispatchedTotal)} / {fmtNum(detail.total_qty)} pcs)</span>
+        </div>
+        <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+          <motion.div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-green-500"
+            initial={{ width: 0 }} animate={{ width: `${progressPct}%` }} transition={{ duration: 0.6 }} />
+        </div>
+        <div className="flex gap-4 text-xs">
+          <span className="text-green-300">✓ Terkirim: {fmtNum(qtyDispatchedTotal)}</span>
+          <span className="text-amber-300">⋯ Sisa: {fmtNum(qtyRemaining)}</span>
+          {detail.deadline && <span className="text-slate-400">📅 Deadline: {detail.deadline}</span>}
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex flex-wrap gap-2">
+        {detail.status === 'draft' && (
+          <Button size="sm" onClick={confirmPO} className="bg-blue-600 hover:bg-blue-500 text-xs">
+            <CheckCircle2 className="w-3 h-3 mr-1.5" /> Konfirmasi PO
+          </Button>
+        )}
+        {['confirmed', 'in_production', 'partial_delivered'].includes(detail.status) && (
+          <Button size="sm" onClick={() => setDispatchDialog(true)} className="bg-violet-600 hover:bg-violet-500 text-xs">
+            <Truck className="w-3 h-3 mr-1.5" /> Buat Dispatch
+          </Button>
+        )}
+        {['confirmed', 'in_production', 'partial_delivered'].includes(detail.status) && (
+          <Button size="sm" variant="outline" onClick={() => setMaterialDialog(true)} className="border-white/10 hover:bg-white/10 text-xs">
+            <BoxesIcon className="w-3 h-3 mr-1.5" /> Terima Material
+          </Button>
+        )}
+        <Button size="sm" variant="outline" onClick={() => setBomDialog(true)} className="border-white/10 hover:bg-white/10 text-xs">
+          <FileText className="w-3 h-3 mr-1.5" /> BOM Maklon
+        </Button>
+        {detail.ar_invoice_number && !detail.gl_je_id && detail.status !== 'draft' && (
+          <Button size="sm" variant="outline" onClick={postAR} disabled={postingAR}
+            className="border-green-500/30 text-green-300 hover:bg-green-500/10 text-xs">
+            <DollarSign className="w-3 h-3 mr-1.5" />
+            {postingAR ? 'Posting...' : 'Post ke Finance GL'}
+          </Button>
+        )}
+        {detail.gl_je_id && (
+          <div className="flex items-center gap-1 text-xs text-green-400 bg-green-500/10 border border-green-400/20 rounded-md px-2 py-1">
+            <CheckCircle2 className="w-3 h-3" /> GL Posted ({detail.gl_je_number})
+          </div>
+        )}
+      </div>
+
+      {/* AR Invoice badge */}
+      {detail.ar_invoice_number && (
+        <div className="bg-blue-500/10 border border-blue-400/20 rounded-lg px-3 py-2 flex items-center justify-between">
+          <div className="text-xs">
+            <span className="text-blue-300 font-semibold">AR Invoice: {detail.ar_invoice_number}</span>
+            <span className="text-slate-400 ml-2">— Auto-generated saat PO dikonfirmasi</span>
+          </div>
+          <StatusBadge status={detail.ar_invoice_detail?.status || 'draft'} />
+        </div>
+      )}
+
+      {/* Items table */}
+      <div className="space-y-2">
+        <h4 className="text-sm font-semibold text-slate-300">Items / Seri</h4>
+        <div className="rounded-lg border border-white/10 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-white/5">
+              <tr>
+                {['Seri', 'Artikel', 'Warna', 'Size', 'Qty PO', 'Tdk Terkirim', 'Sisa', 'Rate', 'Subtotal'].map(h => (
+                  <th key={h} className="py-2 px-2 text-left text-slate-400 font-medium">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {detail.items?.map((item, idx) => {
+                const dispatched = item.qty_dispatched || 0;
+                const remaining = item.qty - dispatched;
+                return (
+                  <tr key={idx} className="border-b border-white/5 hover:bg-white/3">
+                    <td className="py-2 px-2 font-mono text-violet-300">{item.seri_no}</td>
+                    <td className="py-2 px-2 font-medium">{item.artikel}</td>
+                    <td className="py-2 px-2 text-slate-400">{item.color || '—'}</td>
+                    <td className="py-2 px-2 text-slate-400">{item.size || '—'}</td>
+                    <td className="py-2 px-2 font-semibold">{fmtNum(item.qty)}</td>
+                    <td className="py-2 px-2 text-green-300">{fmtNum(dispatched)}</td>
+                    <td className={`py-2 px-2 font-semibold ${remaining === 0 ? 'text-green-400' : 'text-amber-300'}`}>
+                      {remaining === 0 ? '✓' : fmtNum(remaining)}
+                    </td>
+                    <td className="py-2 px-2 text-slate-400">{fmtRp(item.cmt_rate_per_pcs)}</td>
+                    <td className="py-2 px-2 text-right">{fmtRp(item.subtotal)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Dispatch history */}
+      <div className="space-y-2">
+        <h4 className="text-sm font-semibold text-slate-300">History Dispatch ({detail.dispatches?.length || 0})</h4>
+        {detail.dispatches?.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic py-2">Belum ada dispatch untuk PO ini.</p>
+        ) : (
+          <div className="space-y-2">
+            {detail.dispatches?.map(d => (
+              <div key={d.id} className="bg-white/5 rounded-lg border border-white/10 overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 cursor-pointer"
+                  onClick={() => setExpandedDispatch(expandedDispatch === d.id ? null : d.id)}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-bold text-violet-300">{d.dispatch_number}</span>
+                    <StatusBadge status={d.status} config={DISPATCH_STATUS} />
+                    <span className="text-xs text-slate-400">{d.dispatch_date}</span>
+                    <span className="text-xs text-slate-300">{fmtNum(d.total_qty_dispatched)} pcs</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {d.status === 'draft' && (
+                      <Button size="sm" onClick={e => { e.stopPropagation(); confirmDispatch(d.id); }}
+                        className="h-6 text-xs bg-green-600 hover:bg-green-500">
+                        <CheckCircle2 className="w-3 h-3 mr-1" /> Konfirmasi
+                      </Button>
+                    )}
+                    {expandedDispatch === d.id ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                  </div>
+                </div>
+                <AnimatePresence>
+                  {expandedDispatch === d.id && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                      <div className="px-3 pb-3 border-t border-white/5">
+                        <table className="w-full text-xs mt-2">
+                          <thead>
+                            <tr className="text-slate-400">
+                              <th className="text-left py-1">Seri</th>
+                              <th className="text-left py-1">Artikel</th>
+                              <th className="text-left py-1">Warna/Size</th>
+                              <th className="text-right py-1">Qty</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {d.items?.map((di, i) => (
+                              <tr key={i} className="border-b border-white/5">
+                                <td className="py-1 font-mono text-violet-300">{di.seri_no}</td>
+                                <td className="py-1">{di.artikel}</td>
+                                <td className="py-1 text-slate-400">{[di.color, di.size].filter(Boolean).join(' / ')}</td>
+                                <td className="py-1 text-right font-semibold">{fmtNum(di.qty_dispatched)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {d.driver_name && <p className="text-xs text-slate-400 mt-2">Driver: {d.driver_name} {d.vehicle_no ? `| ${d.vehicle_no}` : ''}</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Material receives */}
+      {detail.material_receives?.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-slate-300">Material dari Klien</h4>
+          <div className="space-y-1">
+            {detail.material_receives.map(r => (
+              <div key={r.id} className="bg-white/5 rounded-lg px-3 py-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-300">{r.receive_date}</span>
+                  <span className="text-slate-400">{r.items?.length} item</span>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {r.items?.map((it, i) => (
+                    <span key={i} className="bg-cyan-500/10 border border-cyan-400/20 text-cyan-300 rounded px-1.5 py-0.5">
+                      {it.material_name}: {fmtNum(it.qty)} {it.unit}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Dialogs */}
+      <Dialog open={dispatchDialog} onOpenChange={setDispatchDialog}>
+        <DialogContent className="max-w-3xl bg-[#0f1117] border-white/10">
+          <DialogHeader><DialogTitle>Buat Dispatch — {detail.po_number}</DialogTitle></DialogHeader>
+          <DispatchForm po={detail} onSave={() => { setDispatchDialog(false); fetchDetail(); onRefresh(); }} onClose={() => setDispatchDialog(false)} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={materialDialog} onOpenChange={setMaterialDialog}>
+        <DialogContent className="max-w-xl bg-[#0f1117] border-white/10">
+          <DialogHeader><DialogTitle>Terima Material dari Klien</DialogTitle></DialogHeader>
+          <MaterialReceiveForm po={detail} headers={headers} onSave={() => { setMaterialDialog(false); fetchDetail(); }} onClose={() => setMaterialDialog(false)} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bomDialog} onOpenChange={setBomDialog}>
+        <DialogContent className="max-w-2xl bg-[#0f1117] border-white/10">
+          <DialogHeader><DialogTitle>BOM Maklon — {detail.po_number}</DialogTitle></DialogHeader>
+          <BOMForm po={detail} headers={headers} onSave={() => setBomDialog(false)} onClose={() => setBomDialog(false)} />
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── MATERIAL RECEIVE FORM ────────────────────────────────────────────────────
+function MaterialReceiveForm({ po, headers, onSave, onClose }) {
+  const [items, setItems] = useState([{ material_name: '', material_category: 'fabric', qty: 0, unit: 'pcs', notes: '' }]);
+  const [receiveDate, setReceiveDate] = useState(new Date().toISOString().split('T')[0]);
+  const [saving, setSaving] = useState(false);
+
+  const addItem = () => setItems(i => [...i, { material_name: '', material_category: 'fabric', qty: 0, unit: 'pcs', notes: '' }]);
+  const upd = (idx, field, val) => setItems(i => i.map((it, j) => j === idx ? { ...it, [field]: val } : it));
+
+  const handleSave = async () => {
+    if (items.some(i => !i.material_name.trim())) return toast.error('Semua item harus punya nama material');
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/dewi/maklon/material-receive`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ po_id: po.id, receive_date: receiveDate, items })
+      });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Gagal'); }
+      toast.success('Material berhasil dicatat');
+      onSave();
+    } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <Label className="text-xs">Tanggal Terima</Label>
+        <Input type="date" value={receiveDate} onChange={e => setReceiveDate(e.target.value)} className="bg-white/5 border-white/10 text-sm" />
+      </div>
+      <div className="space-y-2">
+        {items.map((it, idx) => (
+          <div key={idx} className="grid grid-cols-5 gap-2 items-end">
+            <div className="col-span-2 space-y-1">
+              <Label className="text-xs">Nama Material</Label>
+              <Input value={it.material_name} onChange={e => upd(idx, 'material_name', e.target.value)}
+                className="bg-white/5 border-white/10 text-sm" placeholder="Kain Katun Cut" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Kategori</Label>
+              <Select value={it.material_category} onValueChange={v => upd(idx, 'material_category', v)}>
+                <SelectTrigger className="bg-white/5 border-white/10 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fabric">Kain</SelectItem>
+                  <SelectItem value="accessories">Aksesoris</SelectItem>
+                  <SelectItem value="packaging">Packaging</SelectItem>
+                  <SelectItem value="other">Lainnya</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Qty</Label>
+              <Input type="number" value={it.qty} onChange={e => upd(idx, 'qty', parseFloat(e.target.value) || 0)}
+                className="bg-white/5 border-white/10 text-sm" min={0} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Unit</Label>
+              <Select value={it.unit} onValueChange={v => upd(idx, 'unit', v)}>
+                <SelectTrigger className="bg-white/5 border-white/10 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pcs">pcs</SelectItem>
+                  <SelectItem value="yard">yard</SelectItem>
+                  <SelectItem value="kg">kg</SelectItem>
+                  <SelectItem value="roll">roll</SelectItem>
+                  <SelectItem value="lusin">lusin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        ))}
+        <Button variant="outline" size="sm" onClick={addItem} className="border-white/10 hover:bg-white/10 text-xs">
+          <Plus className="w-3 h-3 mr-1" /> Tambah Item
+        </Button>
+      </div>
+      <DialogFooter>
+        <Button variant="ghost" onClick={onClose} className="text-slate-400">Batal</Button>
+        <Button onClick={handleSave} disabled={saving} className="bg-cyan-600 hover:bg-cyan-500">
+          {saving ? 'Menyimpan...' : 'Simpan Penerimaan'}
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
+// ─── BOM FORM ─────────────────────────────────────────────────────────────────
+function BOMForm({ po, headers, onSave, onClose }) {
+  const [existingBom, setExistingBom] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [materials, setMaterials] = useState([
+    { material_name: '', material_category: 'fabric', ownership: 'client_provided', unit: 'yard', qty_estimated: 0, qty_actual: null }
+  ]);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/api/dewi/maklon/bom/${po.id}`, { headers })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d) {
+          setExistingBom(d);
+          setMaterials(d.materials || []);
+          setNotes(d.notes || '');
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [po.id, headers]);
+
+  const addMat = () => setMaterials(m => [...m, { material_name: '', material_category: 'fabric', ownership: 'client_provided', unit: 'yard', qty_estimated: 0, qty_actual: null }]);
+  const upd = (idx, field, val) => setMaterials(m => m.map((it, i) => i === idx ? { ...it, [field]: val } : it));
+
+  const totalQty = po.total_qty || 1;
+
+  const handleSave = async () => {
+    if (materials.some(m => !m.material_name.trim())) return toast.error('Semua material harus punya nama');
+    setSaving(true);
+    try {
+      const url = existingBom ? `${API}/api/dewi/maklon/bom/${po.id}` : `${API}/api/dewi/maklon/bom`;
+      const method = existingBom ? 'PUT' : 'POST';
+      const r = await fetch(url, { method, headers, body: JSON.stringify({ po_id: po.id, materials, notes }) });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Gagal'); }
+      toast.success(existingBom ? 'BOM diupdate' : 'BOM dibuat');
+      onSave();
+    } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="text-center py-8 text-slate-400 text-sm">Memuat BOM...</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-violet-500/10 border border-violet-400/20 rounded-lg px-3 py-2 text-xs text-violet-300">
+        Total PO: <strong>{fmtNum(totalQty)} pcs</strong> — qty/pcs = total_estimasi ÷ {totalQty}
+      </div>
+
+      <div className="space-y-2">
+        <div className="grid grid-cols-7 gap-1 text-xs text-slate-400 px-1 font-medium">
+          <span className="col-span-2">Material</span>
+          <span>Kategori</span>
+          <span>Sumber</span>
+          <span>Unit</span>
+          <span>Total Est.</span>
+          <span>per pcs (auto)</span>
+        </div>
+        {materials.map((m, idx) => (
+          <div key={idx} className="grid grid-cols-7 gap-1 items-center">
+            <Input value={m.material_name} onChange={e => upd(idx, 'material_name', e.target.value)}
+              className="col-span-2 h-7 text-xs bg-white/5 border-white/10" placeholder="Kain Voile" />
+            <Select value={m.material_category} onValueChange={v => upd(idx, 'material_category', v)}>
+              <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fabric">Kain</SelectItem>
+                <SelectItem value="accessories">Aksesoris</SelectItem>
+                <SelectItem value="packaging">Packaging</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={m.ownership} onValueChange={v => upd(idx, 'ownership', v)}>
+              <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="client_provided">Klien</SelectItem>
+                <SelectItem value="cv_da_stock">CV.DA</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={m.unit} onValueChange={v => upd(idx, 'unit', v)}>
+              <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {['yard', 'kg', 'pcs', 'meter', 'lusin', 'roll'].map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Input type="number" value={m.qty_estimated} onChange={e => upd(idx, 'qty_estimated', parseFloat(e.target.value) || 0)}
+              className="h-7 text-xs bg-white/5 border-white/10" min={0} />
+            <div className="h-7 flex items-center px-2 text-xs text-slate-400 bg-white/3 rounded border border-white/5">
+              {totalQty > 0 ? (m.qty_estimated / totalQty).toFixed(4) : '—'}
+            </div>
+          </div>
+        ))}
+        <Button variant="outline" size="sm" onClick={addMat} className="border-white/10 hover:bg-white/10 text-xs">
+          <Plus className="w-3 h-3 mr-1" /> Tambah Material
+        </Button>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs">Catatan</Label>
+        <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="bg-white/5 border-white/10 text-sm resize-none" />
+      </div>
+
+      <DialogFooter>
+        <Button variant="ghost" onClick={onClose} className="text-slate-400">Batal</Button>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? 'Menyimpan...' : (existingBom ? 'Update BOM' : 'Buat BOM')}
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
+// ─── MAIN MODULE ──────────────────────────────────────────────────────────────
+export default function MaklonPOModule({ token, onNavigate }) {
+  window._authToken = token;
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+
+  const [pos, setPos] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState('active');
+  const [createDialog, setCreateDialog] = useState(false);
+  const [detailPO, setDetailPO] = useState(null);
+  const [search, setSearch] = useState('');
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [posR, clientsR] = await Promise.all([
+        fetch(`${API}/api/dewi/maklon/pos`, { headers }),
+        fetch(`${API}/api/dewi/maklon/clients?status=active`, { headers }),
+      ]);
+      if (posR.ok) setPos(await posR.json());
+      if (clientsR.ok) setClients(await clientsR.json());
+    } catch (e) { toast.error('Gagal memuat data'); }
+    finally { setLoading(false); }
+  }, [headers]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const filtered = useMemo(() => {
+    let list = pos;
+    if (tab === 'active') list = list.filter(p => ['confirmed', 'in_production', 'partial_delivered'].includes(p.status));
+    else if (tab !== 'all') list = list.filter(p => p.status === tab);
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(p => p.po_number?.toLowerCase().includes(q) || p.client_name?.toLowerCase().includes(q));
+    }
+    return list;
+  }, [pos, tab, search]);
+
+  const stats = useMemo(() => ({
+    total: pos.length,
+    active: pos.filter(p => ['confirmed', 'in_production', 'partial_delivered'].includes(p.status)).length,
+    draft: pos.filter(p => p.status === 'draft').length,
+    totalValue: pos.filter(p => p.status !== 'cancelled').reduce((s, p) => s + (p.total_value || 0), 0),
+  }), [pos]);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Portal Maklon — Purchase Order"
+        subtitle="Manajemen PO Maklon dengan Seri, Multi-Dispatch, dan Finance Integration"
+        icon={Package}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={fetchData} disabled={loading} className="text-slate-400 hover:text-white">
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+            <Button size="sm" onClick={() => setCreateDialog(true)}>
+              <Plus className="w-4 h-4 mr-2" /> Buat PO Baru
+            </Button>
+          </div>
+        }
+      />
+
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-4">
+        {[
+          { label: 'Total PO', value: stats.total, color: 'text-slate-300' },
+          { label: 'Aktif', value: stats.active, color: 'text-blue-300' },
+          { label: 'Draft', value: stats.draft, color: 'text-amber-300' },
+          { label: 'Total Nilai (aktif)', value: fmtRp(stats.totalValue), color: 'text-green-300', small: true },
+        ].map(s => (
+          <GlassCard key={s.label} className="p-4">
+            <div className="text-xs text-slate-400 mb-1">{s.label}</div>
+            <div className={`${s.small ? 'text-lg' : 'text-2xl'} font-bold ${s.color}`}>{s.value}</div>
+          </GlassCard>
+        ))}
+      </div>
+
+      {/* Tabs + search */}
+      <GlassCard className="p-4 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList className="bg-white/5">
+              <TabsTrigger value="all">Semua</TabsTrigger>
+              <TabsTrigger value="draft">Draft</TabsTrigger>
+              <TabsTrigger value="active">Aktif</TabsTrigger>
+              <TabsTrigger value="partial_delivered">Sebagian</TabsTrigger>
+              <TabsTrigger value="completed">Selesai</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Input placeholder="Cari PO / klien..." value={search} onChange={e => setSearch(e.target.value)}
+            className="w-56 bg-white/5 border-white/10 text-sm" />
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center h-40 text-muted-foreground">Memuat...</div>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={Package}
+            title="Tidak ada PO ditemukan"
+            description="Coba ubah filter status atau kata kunci pencarian."
+            action={{ label: 'Buat PO Pertama', onClick: () => setCreateDialog(true) }}
+          />
+        ) : (
+          <div className="space-y-2">
+            {filtered.map(po => {
+              const progressPct = po.total_qty > 0 ? Math.round(((po.qty_dispatched || 0) / po.total_qty) * 100) : 0;
+              return (
+                <motion.div key={po.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center justify-between p-3 rounded-lg bg-white/3 border border-white/8 hover:bg-white/6 hover:border-white/15 transition-all cursor-pointer group"
+                  onClick={() => setDetailPO(po)}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-violet-500/20 flex items-center justify-center">
+                      <Package className="w-5 h-5 text-violet-300" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-mono font-bold text-white">{po.po_number}</span>
+                        <StatusBadge status={po.status} />
+                        {po.dispatch_count > 0 && (
+                          <span className="text-xs bg-violet-500/15 text-violet-300 px-1.5 rounded">{po.dispatch_count} dispatch</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <span className="text-xs text-slate-400">{po.client_name}</span>
+                        <span className="text-xs text-slate-500">{po.po_date}</span>
+                        {po.deadline && <span className="text-xs text-amber-400">📅 {po.deadline}</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    {/* Progress mini */}
+                    <div className="hidden md:block w-32">
+                      <div className="flex justify-between text-xs text-slate-400 mb-1">
+                        <span>{fmtNum(po.qty_dispatched || 0)} / {fmtNum(po.total_qty)}</span>
+                        <span>{progressPct}%</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-green-400"
+                          style={{ width: `${progressPct}%` }} />
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-green-300">{fmtRp(po.total_value)}</div>
+                      <div className="text-xs text-slate-400">{fmtNum(po.total_qty)} pcs</div>
+                    </div>
+                    {onNavigate && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-violet-400/30 text-violet-200 hover:bg-violet-500/10 hover:border-violet-400/50 text-[10px] h-7 px-2"
+                        data-testid={`po-view-360-${po.id}`}
+                        onClick={(e) => { e.stopPropagation(); onNavigate('maklon-po-360', { po_id: po.id }); }}
+                      >
+                        <BarChart3 className="w-3 h-3 mr-1" /> 360°
+                      </Button>
+                    )}
+                    <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-slate-400 transition-colors" />
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </GlassCard>
+
+      {/* Create Dialog */}
+      <Dialog open={createDialog} onOpenChange={setCreateDialog}>
+        <DialogContent className="max-w-4xl bg-[#0f1117] border-white/10">
+          <DialogHeader><DialogTitle>Buat PO Maklon Baru</DialogTitle></DialogHeader>
+          <POForm clients={clients} onSave={() => { setCreateDialog(false); fetchData(); }} onClose={() => setCreateDialog(false)} />
+        </DialogContent>
+      </Dialog>
+
+      {/* Detail Dialog */}
+      <Dialog open={!!detailPO} onOpenChange={() => setDetailPO(null)}>
+        <DialogContent className="max-w-4xl bg-[#0f1117] border-white/10">
+          <DialogHeader>
+            <DialogTitle>Detail PO — {detailPO?.po_number}</DialogTitle>
+          </DialogHeader>
+          {detailPO && <PODetail po={detailPO} onClose={() => setDetailPO(null)} onRefresh={fetchData} clients={clients} />}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
