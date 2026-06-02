@@ -139,7 +139,7 @@ export default function MaklonSampleManagement({ token }) {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm" data-testid="samples-table">
-                  <thead><tr className="border-b border-white/5 text-xs text-foreground/50">
+                  <thead><tr className="border-b border-foreground/5 text-xs text-foreground/55">
                     <th className="pb-2 text-left">Sample Code</th>
                     <th className="pb-2 text-left">Order</th>
                     <th className="pb-2 text-left">Produk</th>
@@ -150,7 +150,7 @@ export default function MaklonSampleManagement({ token }) {
                   </tr></thead>
                   <tbody className="divide-y divide-white/5">
                     {filtered.map(s => (
-                      <tr key={s.id} className="hover:bg-white/3">
+                      <tr key={s.id} className="hover:bg-foreground/[0.03]">
                         <td className="py-2.5 pr-3 font-mono text-xs text-foreground/70">{s.sample_code}</td>
                         <td className="py-2.5 pr-3 font-mono text-xs text-foreground/60">{s.order_code}</td>
                         <td className="py-2.5 pr-3 text-foreground">{s.product_name}</td>
@@ -358,11 +358,11 @@ function ViewSampleDialog({ sample, headers, onClose }) {
           {detail.rejected_by_name && <InfoRow label="Ditolak oleh" value={`${detail.rejected_by_name} — ${detail.rejection_reason || ''}`} />}
 
           {detail.revisions && detail.revisions.length > 0 && (
-            <div className="pt-3 border-t border-white/10">
+            <div className="pt-3 border-t border-border">
               <div className="text-xs font-semibold text-foreground/60 mb-2">Riwayat Revisi</div>
               <div className="space-y-2">
                 {detail.revisions.map(r => (
-                  <div key={r.id} className="bg-white/5 rounded p-2 text-xs">
+                  <div key={r.id} className="bg-foreground/5 rounded p-2 text-xs">
                     <div className="flex justify-between">
                       <span className="font-semibold text-orange-300">Revisi #{r.revision_number}</span>
                       <span className="text-foreground/40">{r.requested_by}</span>

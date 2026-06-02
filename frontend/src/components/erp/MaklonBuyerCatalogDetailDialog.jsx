@@ -156,7 +156,7 @@ function DetailTab({ catalog, headers }) {
             {catalog.description}
           </div>
         )}
-        <div className="col-span-2 grid grid-cols-3 gap-3 pt-2 border-t border-white/10 text-xs">
+        <div className="col-span-2 grid grid-cols-3 gap-3 pt-2 border-t border-border text-xs">
           <Field
             label="Total Produksi"
             value={`${(catalog.total_qty_produced || 0).toLocaleString('id-ID')} pcs`}
@@ -190,7 +190,7 @@ function DetailTab({ catalog, headers }) {
         {loading ? (
           <div className="text-center py-4 text-foreground/40 text-xs">Memuat samples...</div>
         ) : samples.samples?.length === 0 ? (
-          <div className="text-center py-6 text-foreground/40 text-xs border border-dashed border-white/10 rounded-lg">
+          <div className="text-center py-6 text-foreground/40 text-xs border border-dashed border-border rounded-lg">
             Belum ada sample terlink ke artikel ini.
             <br />
             <span className="text-[10px]">
@@ -202,7 +202,7 @@ function DetailTab({ catalog, headers }) {
             {samples.samples.map((s) => (
               <div
                 key={s.id}
-                className="flex items-center justify-between p-2 rounded border border-white/8 bg-white/3 text-xs"
+                className="flex items-center justify-between p-2 rounded border border-border/60 bg-foreground/[0.03] text-xs"
                 data-testid={`bc-linked-sample-${s.id}`}
               >
                 <div>
@@ -244,7 +244,7 @@ function Field({ label, value, mono, pill, accent, className }) {
     <div className={className}>
       <div className="text-[10px] text-foreground/45 uppercase tracking-wide">{label}</div>
       {pill ? (
-        <span className="inline-block text-xs px-1.5 py-0.5 rounded bg-white/8 mt-0.5">{value}</span>
+        <span className="inline-block text-xs px-1.5 py-0.5 rounded bg-foreground/[0.08] mt-0.5">{value}</span>
       ) : (
         <div className={`text-sm ${accentClass} ${mono ? 'font-mono' : ''}`}>{value}</div>
       )}
@@ -286,7 +286,7 @@ function PriceHistoryTab({ catalog, headers }) {
 
   return (
     <div className="space-y-3">
-      <div className="text-xs text-foreground/60 bg-white/3 rounded p-2 border border-white/8">
+      <div className="text-xs text-foreground/60 bg-foreground/[0.03] rounded p-2 border border-border/60">
         Audit trail tiap perubahan harga (master update / PO create). Threshold drift:{' '}
         <span className="text-amber-400 font-medium">warning ≥{t.warn_pct || 10}%</span>,{' '}
         <span className="text-red-400 font-medium">block ≥{t.block_pct || 25}%</span>.
@@ -295,7 +295,7 @@ function PriceHistoryTab({ catalog, headers }) {
       {loading ? (
         <div className="text-center py-6 text-foreground/40 text-sm">Memuat history...</div>
       ) : history.length === 0 ? (
-        <div className="text-center py-8 text-foreground/40 text-sm border border-dashed border-white/10 rounded">
+        <div className="text-center py-8 text-foreground/40 text-sm border border-dashed border-border rounded">
           Belum ada perubahan harga tercatat.
         </div>
       ) : (
@@ -314,7 +314,7 @@ function PriceHistoryTab({ catalog, headers }) {
             return (
               <div
                 key={h.id}
-                className="p-2.5 rounded border border-white/8 bg-white/3 text-xs"
+                className="p-2.5 rounded border border-border/60 bg-foreground/[0.03] text-xs"
                 data-testid={`bc-price-history-${h.id}`}
               >
                 <div className="flex items-center justify-between mb-1">
@@ -421,7 +421,7 @@ function BOMTemplatesTab({ catalog, headers }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-xs text-foreground/60 bg-white/3 rounded p-2 border border-white/8 flex-1 mr-2">
+        <div className="text-xs text-foreground/60 bg-foreground/[0.03] rounded p-2 border border-border/60 flex-1 mr-2">
           BOM Template menyimpan resep material per artikel. Bisa multi-versi (v1, v2, ...). Hanya
           1 versi aktif (default saat "Apply to PO BOM").
         </div>
@@ -438,7 +438,7 @@ function BOMTemplatesTab({ catalog, headers }) {
       {loading ? (
         <div className="text-center py-6 text-foreground/40 text-sm">Memuat templates...</div>
       ) : templates.length === 0 ? (
-        <div className="text-center py-8 text-foreground/40 text-sm border border-dashed border-white/10 rounded">
+        <div className="text-center py-8 text-foreground/40 text-sm border border-dashed border-border rounded">
           Belum ada BOM Template untuk artikel ini.
           <br />
           <span className="text-[10px]">Klik "Versi Baru" untuk membuat resep material pertama.</span>
@@ -451,7 +451,7 @@ function BOMTemplatesTab({ catalog, headers }) {
               className={`p-3 rounded-lg border ${
                 t.is_active
                   ? 'border-emerald-400/30 bg-emerald-500/5'
-                  : 'border-white/8 bg-white/3'
+                  : 'border-border/60 bg-foreground/[0.03]'
               }`}
               data-testid={`bom-template-${t.id}`}
             >
@@ -509,7 +509,7 @@ function BOMTemplatesTab({ catalog, headers }) {
                   {t.materials.slice(0, 5).map((m, i) => (
                     <span
                       key={i}
-                      className="bg-white/5 px-1.5 py-0.5 rounded border border-white/8"
+                      className="bg-foreground/5 px-1.5 py-0.5 rounded border border-border/60"
                     >
                       {m.material_name}
                     </span>
@@ -655,7 +655,7 @@ function BOMTemplateEditor({ mode, data, catalog, headers, onClose, onSaved }) {
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-white/10 text-foreground/55">
+              <tr className="border-b border-border text-foreground/55">
                 <th className="text-left p-1.5 font-normal">Material *</th>
                 <th className="text-left p-1.5 font-normal">Kategori</th>
                 <th className="text-left p-1.5 font-normal">Unit</th>
@@ -667,7 +667,7 @@ function BOMTemplateEditor({ mode, data, catalog, headers, onClose, onSaved }) {
             </thead>
             <tbody>
               {form.materials.map((m, idx) => (
-                <tr key={idx} className="border-b border-white/5">
+                <tr key={idx} className="border-b border-foreground/5">
                   <td className="p-1">
                     <Input
                       value={m.material_name}

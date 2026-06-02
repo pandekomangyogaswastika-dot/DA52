@@ -1,22 +1,26 @@
 [
   {
-    "content": "M2.3 Backend + Frontend: Price History + Drift 2-tier",
+    "content": "Step 1: Fix files M1/M2 baru (Autocomplete, Picker, Detail Dialog, Module, Sample)",
     "status": "completed"
   },
   {
-    "content": "M2.1 Backend + Frontend: Sample-Catalog Link",
+    "content": "Step 1: Screenshot verifikasi sebelum lanjut step 2",
     "status": "completed"
   },
   {
-    "content": "M2.2 Backend + Frontend: BOM Template Versioned + Apply-to-PO",
-    "status": "completed"
+    "content": "Step 2: Fix MaklonPOModule.jsx (112 occurrences — highest impact)",
+    "status": "in_progress"
   },
   {
-    "content": "M2.4 Frontend: Autocomplete combobox di PO artikel",
-    "status": "completed"
+    "content": "Step 3: Fix MaklonPO360Module.jsx (124 oc)",
+    "status": "pending"
   },
   {
-    "content": "Final E2E testing 96.4% pass + plan.md update",
-    "status": "completed"
+    "content": "Step 4: Fix Maklon lain (Billing, Sample, Client, Dashboard, HPP, AIQuote, Tracking, Config)",
+    "status": "pending"
+  },
+  {
+    "content": "Step 5: Modul portal lain (Finance, Procurement, Production, WMS, CMT, KOL, dll)",
+    "status": "pending"
   }
 ]

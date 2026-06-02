@@ -273,8 +273,8 @@ export default function MaklonBuyerCatalogModule({ token }) {
               key={it.id}
               className={`p-4 border transition-all ${
                 it.status === 'active'
-                  ? 'border-white/8 hover:border-white/15'
-                  : 'border-white/5 opacity-60'
+                  ? 'border-border/60 hover:border-border'
+                  : 'border-border/40 opacity-60'
               }`}
               data-testid={`buyer-catalog-row-${it.id}`}
             >
@@ -298,7 +298,7 @@ export default function MaklonBuyerCatalogModule({ token }) {
                       {it.artikel_code}
                     </span>
                     {it.buyer_ref_code && (
-                      <span className="bg-white/5 text-foreground/60 px-1.5 py-0.5 rounded font-mono">
+                      <span className="bg-foreground/5 text-foreground/65 px-1.5 py-0.5 rounded font-mono">
                         ↳ {it.buyer_ref_code}
                       </span>
                     )}
@@ -332,7 +332,7 @@ export default function MaklonBuyerCatalogModule({ token }) {
                       {(it.size_options || []).slice(0, 6).map((s) => (
                         <span
                           key={s}
-                          className="text-[10px] bg-slate-500/10 text-slate-300 px-1.5 py-0.5 rounded border border-slate-400/20"
+                          className="text-[10px] bg-muted/40 text-foreground/75 px-1.5 py-0.5 rounded border border-border/60"
                         >
                           {s}
                         </span>

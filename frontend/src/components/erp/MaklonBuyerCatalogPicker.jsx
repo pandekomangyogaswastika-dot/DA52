@@ -100,18 +100,18 @@ export default function MaklonBuyerCatalogPicker({ open, clientId, headers, onCl
                     key={it.id}
                     type="button"
                     onClick={() => pick(it)}
-                    className="w-full text-left p-3 rounded-lg border border-white/8 bg-white/3 hover:bg-violet-500/10 hover:border-violet-400/30 transition-all group"
+                    className="w-full text-left p-3 rounded-lg border border-border/60 bg-foreground/[0.03] hover:bg-violet-500/10 hover:border-violet-400/30 transition-all group"
                     data-testid={`buyer-catalog-picker-item-${it.id}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-0.5">
                           <span className="font-semibold text-sm text-foreground">{it.product_name}</span>
-                          <span className="text-[10px] bg-violet-500/15 text-violet-300 px-1.5 py-0.5 rounded font-mono border border-violet-400/25">
+                          <span className="text-[10px] bg-violet-500/15 text-violet-600 dark:text-violet-300 px-1.5 py-0.5 rounded font-mono border border-violet-400/25">
                             {it.artikel_code}
                           </span>
                           {it.buyer_ref_code && (
-                            <span className="text-[10px] bg-white/5 text-foreground/60 px-1.5 py-0.5 rounded font-mono">
+                            <span className="text-[10px] bg-foreground/5 text-foreground/65 px-1.5 py-0.5 rounded font-mono">
                               ↳ {it.buyer_ref_code}
                             </span>
                           )}
@@ -120,19 +120,19 @@ export default function MaklonBuyerCatalogPicker({ open, clientId, headers, onCl
                           <span><Tag className="w-3 h-3 inline mr-0.5" /> {it.category || 'Uncategorized'}</span>
                           <span className="text-foreground/30">•</span>
                           <span>
-                            CMT: <strong className="text-amber-400">{fmtRp(it.default_cmt_price)}</strong>
+                            CMT: <strong className="text-amber-600 dark:text-amber-400">{fmtRp(it.default_cmt_price)}</strong>
                           </span>
                           {(it.color_options?.length > 0 || it.size_options?.length > 0) && (
                             <>
                               <span className="text-foreground/30">•</span>
-                              <span className="text-foreground/50">
+                              <span className="text-foreground/55">
                                 {(it.color_options || []).length} warna · {(it.size_options || []).length} size
                               </span>
                             </>
                           )}
                         </div>
                       </div>
-                      <CheckCircle2 className="w-4 h-4 text-violet-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                      <CheckCircle2 className="w-4 h-4 text-violet-500 dark:text-violet-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                     </div>
                   </button>
                 ))

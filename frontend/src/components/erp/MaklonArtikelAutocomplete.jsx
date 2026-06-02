@@ -175,7 +175,7 @@ export default function MaklonArtikelAutocomplete({
             onKeyDown={handleKeyDown}
             placeholder={clientId ? 'Ketik / pilih artikel...' : 'Pilih klien dulu'}
             disabled={disabled || !clientId}
-            className={`h-7 text-xs bg-white/5 border-white/10 w-32 pr-6 ${
+            className={`h-7 text-xs bg-foreground/5 border-border w-32 pr-6 ${
               currentCatalogId ? 'border-violet-400/40 bg-violet-500/5' : ''
             }`}
             data-testid={`${testIdPrefix}-input`}
@@ -229,10 +229,10 @@ export default function MaklonArtikelAutocomplete({
       {/* Suggestions dropdown */}
       {open && clientId && suggestions.length > 0 && (
         <div
-          className="absolute z-50 left-0 mt-1 w-72 max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-slate-900/95 backdrop-blur-md shadow-xl"
+          className="absolute z-50 left-0 mt-1 w-72 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover backdrop-blur-md shadow-xl"
           data-testid={`${testIdPrefix}-dropdown`}
         >
-          <div className="px-2 py-1.5 border-b border-white/8 flex items-center gap-1.5 text-[10px] text-foreground/50">
+          <div className="px-2 py-1.5 border-b border-border/60 flex items-center gap-1.5 text-[10px] text-foreground/55">
             <Sparkles className="w-3 h-3 text-violet-400" />
             Saran dari Buyer Catalog
           </div>
@@ -240,10 +240,10 @@ export default function MaklonArtikelAutocomplete({
             <button
               key={s.id}
               type="button"
-              className={`w-full text-left px-2 py-1.5 text-xs border-b border-white/4 last:border-b-0 transition-colors ${
+              className={`w-full text-left px-2 py-1.5 text-xs border-b border-foreground/[0.04] last:border-b-0 transition-colors ${
                 idx === activeIdx
-                  ? 'bg-violet-500/15 text-violet-100'
-                  : 'hover:bg-white/5 text-foreground/85'
+                  ? 'bg-violet-500/15 text-violet-700 dark:text-violet-100'
+                  : 'hover:bg-foreground/5 text-foreground/85'
               }`}
               onClick={() => handleSelect(s)}
               onMouseEnter={() => setActiveIdx(idx)}
@@ -252,17 +252,17 @@ export default function MaklonArtikelAutocomplete({
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-violet-300 text-[10px] bg-violet-500/15 px-1 py-px rounded">
+                    <span className="font-mono text-violet-600 dark:text-violet-300 text-[10px] bg-violet-500/15 px-1 py-px rounded">
                       {s.artikel_code}
                     </span>
                     <span className="truncate font-medium">{s.product_name}</span>
                   </div>
-                  <div className="text-[10px] text-foreground/50 mt-0.5">
-                    CMT default: <strong className="text-amber-400">{fmtRp(s.default_cmt_price)}</strong>
-                    {s.buyer_ref_code && <span className="ml-1.5 text-foreground/40">· {s.buyer_ref_code}</span>}
+                  <div className="text-[10px] text-foreground/55 mt-0.5">
+                    CMT default: <strong className="text-amber-600 dark:text-amber-400">{fmtRp(s.default_cmt_price)}</strong>
+                    {s.buyer_ref_code && <span className="ml-1.5 text-foreground/45">· {s.buyer_ref_code}</span>}
                   </div>
                 </div>
-                <BookOpen className="w-3 h-3 text-violet-400 shrink-0 opacity-50" />
+                <BookOpen className="w-3 h-3 text-violet-500 dark:text-violet-400 shrink-0 opacity-60" />
               </div>
             </button>
           ))}
@@ -272,14 +272,14 @@ export default function MaklonArtikelAutocomplete({
       {/* Empty state ketika ada query tapi tidak ada match */}
       {open && clientId && value && suggestions.length === 0 && (
         <div
-          className="absolute z-50 left-0 mt-1 w-72 rounded-lg border border-white/10 bg-slate-900/95 backdrop-blur-md shadow-xl px-3 py-2"
+          className="absolute z-50 left-0 mt-1 w-72 rounded-lg border border-border bg-popover backdrop-blur-md shadow-xl px-3 py-2"
           data-testid={`${testIdPrefix}-empty`}
         >
-          <div className="text-[10px] text-foreground/50 flex items-center gap-1.5">
-            <Sparkles className="w-3 h-3 text-violet-400/60" />
+          <div className="text-[10px] text-foreground/55 flex items-center gap-1.5">
+            <Sparkles className="w-3 h-3 text-violet-500/70 dark:text-violet-400/60" />
             Tidak ada artikel cocok di Buyer Catalog
           </div>
-          <div className="text-[10px] text-foreground/40 mt-0.5">
+          <div className="text-[10px] text-foreground/45 mt-0.5">
             Ketik bebas atau tambahkan artikel di Buyer Catalog dulu.
           </div>
         </div>

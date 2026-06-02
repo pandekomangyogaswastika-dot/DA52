@@ -80,14 +80,14 @@ function ItemRow({ item, idx, onChange, onRemove, readOnly, onOpenPicker, client
     });
   };
   return (
-    <tr className="border-b border-white/5 hover:bg-white/3 transition-colors align-top">
+    <tr className="border-b border-foreground/5 hover:bg-foreground/[0.03] transition-colors align-top">
       <td className="py-2 px-2">
         <Input value={item.seri_no} onChange={e => upd('seri_no', e.target.value)}
-          className="h-7 text-xs bg-white/5 border-white/10 w-16" placeholder="S01" disabled={readOnly} />
+          className="h-7 text-xs bg-foreground/5 border-border w-16" placeholder="S01" disabled={readOnly} />
       </td>
       <td className="py-2 px-2">
         {readOnly ? (
-          <Input value={item.artikel} className="h-7 text-xs bg-white/5 border-white/10 w-32" disabled />
+          <Input value={item.artikel} className="h-7 text-xs bg-foreground/5 border-border w-32" disabled />
         ) : (
           <MaklonArtikelAutocomplete
             value={item.artikel}
@@ -105,19 +105,19 @@ function ItemRow({ item, idx, onChange, onRemove, readOnly, onOpenPicker, client
       </td>
       <td className="py-2 px-2">
         <Input value={item.color || ''} onChange={e => upd('color', e.target.value)}
-          className="h-7 text-xs bg-white/5 border-white/10 w-20" placeholder="Black" disabled={readOnly} />
+          className="h-7 text-xs bg-foreground/5 border-border w-20" placeholder="Black" disabled={readOnly} />
       </td>
       <td className="py-2 px-2">
         <Input value={item.size || ''} onChange={e => upd('size', e.target.value)}
-          className="h-7 text-xs bg-white/5 border-white/10 w-16" placeholder="M" disabled={readOnly} />
+          className="h-7 text-xs bg-foreground/5 border-border w-16" placeholder="M" disabled={readOnly} />
       </td>
       <td className="py-2 px-2">
         <Input type="number" value={item.qty} onChange={e => upd('qty', parseInt(e.target.value) || 0)}
-          className="h-7 text-xs bg-white/5 border-white/10 w-20" min={1} disabled={readOnly} />
+          className="h-7 text-xs bg-foreground/5 border-border w-20" min={1} disabled={readOnly} />
       </td>
       <td className="py-2 px-2">
         <Input type="number" value={item.cmt_rate_per_pcs} onChange={e => upd('cmt_rate_per_pcs', parseFloat(e.target.value) || 0)}
-          className="h-7 text-xs bg-white/5 border-white/10 w-28" min={0} disabled={readOnly} />
+          className="h-7 text-xs bg-foreground/5 border-border w-28" min={0} disabled={readOnly} />
       </td>
       <td className="py-2 px-2 text-right text-xs text-slate-300">
         {fmtRp((item.qty || 0) * (item.cmt_rate_per_pcs || 0))}
@@ -259,7 +259,7 @@ function POForm({ po, clients, onSave, onClose }) {
           <Label className="text-xs">Klien *</Label>
           <Select value={form.client_id} onValueChange={v => setForm(f => ({ ...f, client_id: v }))}
             disabled={isEdit}>
-            <SelectTrigger className="bg-white/5 border-white/10 text-sm">
+            <SelectTrigger className="bg-foreground/5 border-border text-sm">
               <SelectValue placeholder="Pilih klien" />
             </SelectTrigger>
             <SelectContent>
@@ -270,7 +270,7 @@ function POForm({ po, clients, onSave, onClose }) {
         <div className="space-y-1.5">
           <Label className="text-xs">Payment Terms</Label>
           <Select value={form.payment_terms} onValueChange={v => setForm(f => ({ ...f, payment_terms: v }))}>
-            <SelectTrigger className="bg-white/5 border-white/10 text-sm"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="bg-foreground/5 border-border text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="cod">COD</SelectItem>
               <SelectItem value="net_14">Net 14</SelectItem>
@@ -282,12 +282,12 @@ function POForm({ po, clients, onSave, onClose }) {
         <div className="space-y-1.5">
           <Label className="text-xs">Tanggal PO</Label>
           <Input type="date" value={form.po_date} onChange={e => setForm(f => ({ ...f, po_date: e.target.value }))}
-            className="bg-white/5 border-white/10 text-sm" />
+            className="bg-foreground/5 border-border text-sm" />
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">Deadline Target</Label>
           <Input type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))}
-            className="bg-white/5 border-white/10 text-sm" />
+            className="bg-foreground/5 border-border text-sm" />
         </div>
       </div>
 
@@ -304,14 +304,14 @@ function POForm({ po, clients, onSave, onClose }) {
               Warning auto jika harga ≠ default catalog
             </div>
           </div>
-          <Button type="button" size="sm" variant="outline" className="h-7 text-xs border-white/10 hover:bg-white/10"
+          <Button type="button" size="sm" variant="outline" className="h-7 text-xs border-border hover:bg-foreground/10"
             onClick={addItem}>
             <Plus className="w-3 h-3 mr-1" /> Tambah Baris
           </Button>
         </div>
-        <div className="rounded-lg border border-white/10 overflow-x-auto">
+        <div className="rounded-lg border border-border overflow-x-auto">
           <table className="w-full text-xs">
-            <thead className="bg-white/5">
+            <thead className="bg-foreground/5">
               <tr>
                 {['Seri', 'Artikel', 'Warna', 'Size', 'Qty', 'Rate CMT (Rp)', 'Subtotal', ''].map(h => (
                   <th key={h} className="text-left py-2 px-2 text-slate-400 font-medium">{h}</th>
@@ -323,7 +323,7 @@ function POForm({ po, clients, onSave, onClose }) {
                 <ItemRow key={idx} item={item} idx={idx} onChange={updateItem} onRemove={removeItem} onOpenPicker={handleOpenPicker} clientId={form.client_id} headers={headers} />
               ))}
             </tbody>
-            <tfoot className="border-t border-white/10 bg-white/3">
+            <tfoot className="border-t border-border bg-foreground/[0.03]">
               <tr>
                 <td colSpan={4} className="py-2 px-2 text-xs text-slate-400">Total</td>
                 <td className="py-2 px-2 text-xs font-bold text-white">{fmtNum(totalQty)} pcs</td>
@@ -339,7 +339,7 @@ function POForm({ po, clients, onSave, onClose }) {
       <div className="space-y-1.5">
         <Label className="text-xs">Catatan</Label>
         <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-          rows={2} className="bg-white/5 border-white/10 text-sm resize-none" placeholder="Catatan tambahan..." />
+          rows={2} className="bg-foreground/5 border-border text-sm resize-none" placeholder="Catatan tambahan..." />
       </div>
 
       <DialogFooter>
@@ -424,25 +424,25 @@ function DispatchForm({ po, onSave, onClose }) {
         <div className="space-y-1.5">
           <Label className="text-xs">Tanggal Dispatch</Label>
           <Input type="date" value={form.dispatch_date} onChange={e => setForm(f => ({ ...f, dispatch_date: e.target.value }))}
-            className="bg-white/5 border-white/10 text-sm" />
+            className="bg-foreground/5 border-border text-sm" />
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">Nama Driver</Label>
           <Input value={form.driver_name} onChange={e => setForm(f => ({ ...f, driver_name: e.target.value }))}
-            className="bg-white/5 border-white/10 text-sm" placeholder="Opsional" />
+            className="bg-foreground/5 border-border text-sm" placeholder="Opsional" />
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">No. Kendaraan</Label>
           <Input value={form.vehicle_no} onChange={e => setForm(f => ({ ...f, vehicle_no: e.target.value }))}
-            className="bg-white/5 border-white/10 text-sm" placeholder="B 1234 XY" />
+            className="bg-foreground/5 border-border text-sm" placeholder="B 1234 XY" />
         </div>
       </div>
 
       <div className="space-y-2">
         <Label className="text-xs">Pilih Items untuk Dispatch (bebas urutan, boleh partial)</Label>
-        <div className="rounded-lg border border-white/10 overflow-hidden">
+        <div className="rounded-lg border border-border overflow-hidden">
           <table className="w-full text-xs">
-            <thead className="bg-white/5">
+            <thead className="bg-foreground/5">
               <tr>
                 <th className="py-2 px-2 text-left text-slate-400">Seri</th>
                 <th className="py-2 px-2 text-left text-slate-400">Artikel</th>
@@ -455,7 +455,7 @@ function DispatchForm({ po, onSave, onClose }) {
             </thead>
             <tbody>
               {form.items.map((item, idx) => (
-                <tr key={idx} className={`border-b border-white/5 ${item.included ? 'bg-violet-500/5' : ''}`}>
+                <tr key={idx} className={`border-b border-foreground/5 ${item.included ? 'bg-violet-500/5' : ''}`}>
                   <td className="py-2 px-2 font-mono text-violet-300">{item.seri_no}</td>
                   <td className="py-2 px-2">{item.artikel}</td>
                   <td className="py-2 px-2 text-slate-400">{[item.color, item.size].filter(Boolean).join(' / ')}</td>
@@ -474,7 +474,7 @@ function DispatchForm({ po, onSave, onClose }) {
                       <Input type="number" value={item.qty_to_dispatch}
                         onChange={e => setQty(idx, e.target.value)}
                         max={item.qty_remaining} min={1}
-                        className="h-7 text-xs bg-white/5 border-white/10 w-20 text-center" />
+                        className="h-7 text-xs bg-foreground/5 border-border w-20 text-center" />
                     )}
                   </td>
                 </tr>
@@ -493,13 +493,13 @@ function DispatchForm({ po, onSave, onClose }) {
       <div className="space-y-1.5">
         <Label className="text-xs">Catatan</Label>
         <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-          rows={2} className="bg-white/5 border-white/10 text-sm resize-none" />
+          rows={2} className="bg-foreground/5 border-border text-sm resize-none" />
       </div>
 
       <DialogFooter>
         <Button variant="ghost" onClick={onClose} className="text-slate-400">Batal</Button>
         <Button onClick={handleDispatch} disabled={saving || selectedItems.length === 0}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 text-sm transition-colors">
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-foreground/5 text-sm transition-colors">
           <Truck className="w-4 h-4 mr-2" />
           {saving ? 'Membuat...' : `Buat Dispatch (${selectedItems.length} item)`}
         </Button>
@@ -579,12 +579,12 @@ function PODetail({ po, onClose, onRefresh, clients }) {
       </div>
 
       {/* Progress bar */}
-      <div className="bg-white/5 rounded-lg p-3 space-y-2">
+      <div className="bg-foreground/5 rounded-lg p-3 space-y-2">
         <div className="flex items-center justify-between text-xs">
           <span className="text-slate-400">Progress Pengiriman</span>
           <span className="text-white font-semibold">{progressPct}% ({fmtNum(qtyDispatchedTotal)} / {fmtNum(detail.total_qty)} pcs)</span>
         </div>
-        <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+        <div className="h-2 rounded-full bg-foreground/10 overflow-hidden">
           <motion.div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-green-500"
             initial={{ width: 0 }} animate={{ width: `${progressPct}%` }} transition={{ duration: 0.6 }} />
         </div>
@@ -608,11 +608,11 @@ function PODetail({ po, onClose, onRefresh, clients }) {
           </Button>
         )}
         {['confirmed', 'in_production', 'partial_delivered'].includes(detail.status) && (
-          <Button size="sm" variant="outline" onClick={() => setMaterialDialog(true)} className="border-white/10 hover:bg-white/10 text-xs">
+          <Button size="sm" variant="outline" onClick={() => setMaterialDialog(true)} className="border-border hover:bg-foreground/10 text-xs">
             <BoxesIcon className="w-3 h-3 mr-1.5" /> Terima Material
           </Button>
         )}
-        <Button size="sm" variant="outline" onClick={() => setBomDialog(true)} className="border-white/10 hover:bg-white/10 text-xs">
+        <Button size="sm" variant="outline" onClick={() => setBomDialog(true)} className="border-border hover:bg-foreground/10 text-xs">
           <FileText className="w-3 h-3 mr-1.5" /> BOM Maklon
         </Button>
         {detail.ar_invoice_number && !detail.gl_je_id && detail.status !== 'draft' && (
@@ -643,9 +643,9 @@ function PODetail({ po, onClose, onRefresh, clients }) {
       {/* Items table */}
       <div className="space-y-2">
         <h4 className="text-sm font-semibold text-slate-300">Items / Seri</h4>
-        <div className="rounded-lg border border-white/10 overflow-x-auto">
+        <div className="rounded-lg border border-border overflow-x-auto">
           <table className="w-full text-xs">
-            <thead className="bg-white/5">
+            <thead className="bg-foreground/5">
               <tr>
                 {['Seri', 'Artikel', 'Warna', 'Size', 'Qty PO', 'Tdk Terkirim', 'Sisa', 'Rate', 'Subtotal'].map(h => (
                   <th key={h} className="py-2 px-2 text-left text-slate-400 font-medium">{h}</th>
@@ -657,7 +657,7 @@ function PODetail({ po, onClose, onRefresh, clients }) {
                 const dispatched = item.qty_dispatched || 0;
                 const remaining = item.qty - dispatched;
                 return (
-                  <tr key={idx} className="border-b border-white/5 hover:bg-white/3">
+                  <tr key={idx} className="border-b border-foreground/5 hover:bg-foreground/[0.03]">
                     <td className="py-2 px-2 font-mono text-violet-300">{item.seri_no}</td>
                     <td className="py-2 px-2 font-medium">{item.artikel}</td>
                     <td className="py-2 px-2 text-slate-400">{item.color || '—'}</td>
@@ -685,7 +685,7 @@ function PODetail({ po, onClose, onRefresh, clients }) {
         ) : (
           <div className="space-y-2">
             {detail.dispatches?.map(d => (
-              <div key={d.id} className="bg-white/5 rounded-lg border border-white/10 overflow-hidden">
+              <div key={d.id} className="bg-foreground/5 rounded-lg border border-border overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 cursor-pointer"
                   onClick={() => setExpandedDispatch(expandedDispatch === d.id ? null : d.id)}>
                   <div className="flex items-center gap-2">
@@ -708,7 +708,7 @@ function PODetail({ po, onClose, onRefresh, clients }) {
                   {expandedDispatch === d.id && (
                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                      <div className="px-3 pb-3 border-t border-white/5">
+                      <div className="px-3 pb-3 border-t border-foreground/5">
                         <table className="w-full text-xs mt-2">
                           <thead>
                             <tr className="text-slate-400">
@@ -720,7 +720,7 @@ function PODetail({ po, onClose, onRefresh, clients }) {
                           </thead>
                           <tbody>
                             {d.items?.map((di, i) => (
-                              <tr key={i} className="border-b border-white/5">
+                              <tr key={i} className="border-b border-foreground/5">
                                 <td className="py-1 font-mono text-violet-300">{di.seri_no}</td>
                                 <td className="py-1">{di.artikel}</td>
                                 <td className="py-1 text-slate-400">{[di.color, di.size].filter(Boolean).join(' / ')}</td>
@@ -746,7 +746,7 @@ function PODetail({ po, onClose, onRefresh, clients }) {
           <h4 className="text-sm font-semibold text-slate-300">Material dari Klien</h4>
           <div className="space-y-1">
             {detail.material_receives.map(r => (
-              <div key={r.id} className="bg-white/5 rounded-lg px-3 py-2 text-xs">
+              <div key={r.id} className="bg-foreground/5 rounded-lg px-3 py-2 text-xs">
                 <div className="flex justify-between">
                   <span className="text-slate-300">{r.receive_date}</span>
                   <span className="text-slate-400">{r.items?.length} item</span>
@@ -766,21 +766,21 @@ function PODetail({ po, onClose, onRefresh, clients }) {
 
       {/* Dialogs */}
       <Dialog open={dispatchDialog} onOpenChange={setDispatchDialog}>
-        <DialogContent className="max-w-3xl bg-[#0f1117] border-white/10">
+        <DialogContent className="max-w-3xl bg-[#0f1117] border-border">
           <DialogHeader><DialogTitle>Buat Dispatch — {detail.po_number}</DialogTitle></DialogHeader>
           <DispatchForm po={detail} onSave={() => { setDispatchDialog(false); fetchDetail(); onRefresh(); }} onClose={() => setDispatchDialog(false)} />
         </DialogContent>
       </Dialog>
 
       <Dialog open={materialDialog} onOpenChange={setMaterialDialog}>
-        <DialogContent className="max-w-xl bg-[#0f1117] border-white/10">
+        <DialogContent className="max-w-xl bg-[#0f1117] border-border">
           <DialogHeader><DialogTitle>Terima Material dari Klien</DialogTitle></DialogHeader>
           <MaterialReceiveForm po={detail} headers={headers} onSave={() => { setMaterialDialog(false); fetchDetail(); }} onClose={() => setMaterialDialog(false)} />
         </DialogContent>
       </Dialog>
 
       <Dialog open={bomDialog} onOpenChange={setBomDialog}>
-        <DialogContent className="max-w-2xl bg-[#0f1117] border-white/10">
+        <DialogContent className="max-w-2xl bg-[#0f1117] border-border">
           <DialogHeader><DialogTitle>BOM Maklon — {detail.po_number}</DialogTitle></DialogHeader>
           <BOMForm po={detail} headers={headers} onSave={() => setBomDialog(false)} onClose={() => setBomDialog(false)} />
         </DialogContent>
@@ -817,7 +817,7 @@ function MaterialReceiveForm({ po, headers, onSave, onClose }) {
     <div className="space-y-4">
       <div className="space-y-1.5">
         <Label className="text-xs">Tanggal Terima</Label>
-        <Input type="date" value={receiveDate} onChange={e => setReceiveDate(e.target.value)} className="bg-white/5 border-white/10 text-sm" />
+        <Input type="date" value={receiveDate} onChange={e => setReceiveDate(e.target.value)} className="bg-foreground/5 border-border text-sm" />
       </div>
       <div className="space-y-2">
         {items.map((it, idx) => (
@@ -825,12 +825,12 @@ function MaterialReceiveForm({ po, headers, onSave, onClose }) {
             <div className="col-span-2 space-y-1">
               <Label className="text-xs">Nama Material</Label>
               <Input value={it.material_name} onChange={e => upd(idx, 'material_name', e.target.value)}
-                className="bg-white/5 border-white/10 text-sm" placeholder="Kain Katun Cut" />
+                className="bg-foreground/5 border-border text-sm" placeholder="Kain Katun Cut" />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Kategori</Label>
               <Select value={it.material_category} onValueChange={v => upd(idx, 'material_category', v)}>
-                <SelectTrigger className="bg-white/5 border-white/10 text-sm"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="bg-foreground/5 border-border text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="fabric">Kain</SelectItem>
                   <SelectItem value="accessories">Aksesoris</SelectItem>
@@ -842,12 +842,12 @@ function MaterialReceiveForm({ po, headers, onSave, onClose }) {
             <div className="space-y-1">
               <Label className="text-xs">Qty</Label>
               <Input type="number" value={it.qty} onChange={e => upd(idx, 'qty', parseFloat(e.target.value) || 0)}
-                className="bg-white/5 border-white/10 text-sm" min={0} />
+                className="bg-foreground/5 border-border text-sm" min={0} />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Unit</Label>
               <Select value={it.unit} onValueChange={v => upd(idx, 'unit', v)}>
-                <SelectTrigger className="bg-white/5 border-white/10 text-sm"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="bg-foreground/5 border-border text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pcs">pcs</SelectItem>
                   <SelectItem value="yard">yard</SelectItem>
@@ -859,7 +859,7 @@ function MaterialReceiveForm({ po, headers, onSave, onClose }) {
             </div>
           </div>
         ))}
-        <Button variant="outline" size="sm" onClick={addItem} className="border-white/10 hover:bg-white/10 text-xs">
+        <Button variant="outline" size="sm" onClick={addItem} className="border-border hover:bg-foreground/10 text-xs">
           <Plus className="w-3 h-3 mr-1" /> Tambah Item
         </Button>
       </div>
@@ -986,9 +986,9 @@ function BOMForm({ po, headers, onSave, onClose }) {
         {materials.map((m, idx) => (
           <div key={idx} className="grid grid-cols-7 gap-1 items-center">
             <Input value={m.material_name} onChange={e => upd(idx, 'material_name', e.target.value)}
-              className="col-span-2 h-7 text-xs bg-white/5 border-white/10" placeholder="Kain Voile" />
+              className="col-span-2 h-7 text-xs bg-foreground/5 border-border" placeholder="Kain Voile" />
             <Select value={m.material_category} onValueChange={v => upd(idx, 'material_category', v)}>
-              <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-7 text-xs bg-foreground/5 border-border"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="fabric">Kain</SelectItem>
                 <SelectItem value="accessories">Aksesoris</SelectItem>
@@ -996,33 +996,33 @@ function BOMForm({ po, headers, onSave, onClose }) {
               </SelectContent>
             </Select>
             <Select value={m.ownership} onValueChange={v => upd(idx, 'ownership', v)}>
-              <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-7 text-xs bg-foreground/5 border-border"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="client_provided">Klien</SelectItem>
                 <SelectItem value="cv_da_stock">CV.DA</SelectItem>
               </SelectContent>
             </Select>
             <Select value={m.unit} onValueChange={v => upd(idx, 'unit', v)}>
-              <SelectTrigger className="h-7 text-xs bg-white/5 border-white/10"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-7 text-xs bg-foreground/5 border-border"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {['yard', 'kg', 'pcs', 'meter', 'lusin', 'roll'].map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
               </SelectContent>
             </Select>
             <Input type="number" value={m.qty_estimated} onChange={e => upd(idx, 'qty_estimated', parseFloat(e.target.value) || 0)}
-              className="h-7 text-xs bg-white/5 border-white/10" min={0} />
-            <div className="h-7 flex items-center px-2 text-xs text-slate-400 bg-white/3 rounded border border-white/5">
+              className="h-7 text-xs bg-foreground/5 border-border" min={0} />
+            <div className="h-7 flex items-center px-2 text-xs text-slate-400 bg-foreground/[0.03] rounded border border-foreground/5">
               {totalQty > 0 ? (m.qty_estimated / totalQty).toFixed(4) : '—'}
             </div>
           </div>
         ))}
-        <Button variant="outline" size="sm" onClick={addMat} className="border-white/10 hover:bg-white/10 text-xs">
+        <Button variant="outline" size="sm" onClick={addMat} className="border-border hover:bg-foreground/10 text-xs">
           <Plus className="w-3 h-3 mr-1" /> Tambah Material
         </Button>
       </div>
 
       <div className="space-y-1.5">
         <Label className="text-xs">Catatan</Label>
-        <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="bg-white/5 border-white/10 text-sm resize-none" />
+        <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="bg-foreground/5 border-border text-sm resize-none" />
       </div>
 
       <DialogFooter>
@@ -1118,7 +1118,7 @@ export default function MaklonPOModule({ token, onNavigate }) {
       <GlassCard className="p-4 space-y-4">
         <div className="flex items-center justify-between gap-4">
           <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="bg-white/5">
+            <TabsList className="bg-foreground/5">
               <TabsTrigger value="all">Semua</TabsTrigger>
               <TabsTrigger value="draft">Draft</TabsTrigger>
               <TabsTrigger value="active">Aktif</TabsTrigger>
@@ -1127,7 +1127,7 @@ export default function MaklonPOModule({ token, onNavigate }) {
             </TabsList>
           </Tabs>
           <Input placeholder="Cari PO / klien..." value={search} onChange={e => setSearch(e.target.value)}
-            className="w-56 bg-white/5 border-white/10 text-sm" />
+            className="w-56 bg-foreground/5 border-border text-sm" />
         </div>
 
         {loading ? (
@@ -1145,7 +1145,7 @@ export default function MaklonPOModule({ token, onNavigate }) {
               const progressPct = po.total_qty > 0 ? Math.round(((po.qty_dispatched || 0) / po.total_qty) * 100) : 0;
               return (
                 <motion.div key={po.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center justify-between p-3 rounded-lg bg-white/3 border border-white/8 hover:bg-white/6 hover:border-white/15 transition-all cursor-pointer group"
+                  className="flex items-center justify-between p-3 rounded-lg bg-foreground/[0.03] border border-border/60 hover:bg-white/6 hover:border-border transition-all cursor-pointer group"
                   onClick={() => setDetailPO(po)}>
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-violet-500/20 flex items-center justify-center">
@@ -1174,7 +1174,7 @@ export default function MaklonPOModule({ token, onNavigate }) {
                         <span>{fmtNum(po.qty_dispatched || 0)} / {fmtNum(po.total_qty)}</span>
                         <span>{progressPct}%</span>
                       </div>
-                      <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="h-1.5 rounded-full bg-foreground/10 overflow-hidden">
                         <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-green-400"
                           style={{ width: `${progressPct}%` }} />
                       </div>
@@ -1206,7 +1206,7 @@ export default function MaklonPOModule({ token, onNavigate }) {
 
       {/* Create Dialog */}
       <Dialog open={createDialog} onOpenChange={setCreateDialog}>
-        <DialogContent className="max-w-4xl bg-[#0f1117] border-white/10">
+        <DialogContent className="max-w-4xl bg-[#0f1117] border-border">
           <DialogHeader><DialogTitle>Buat PO Maklon Baru</DialogTitle></DialogHeader>
           <POForm clients={clients} onSave={() => { setCreateDialog(false); fetchData(); }} onClose={() => setCreateDialog(false)} />
         </DialogContent>
@@ -1214,7 +1214,7 @@ export default function MaklonPOModule({ token, onNavigate }) {
 
       {/* Detail Dialog */}
       <Dialog open={!!detailPO} onOpenChange={() => setDetailPO(null)}>
-        <DialogContent className="max-w-4xl bg-[#0f1117] border-white/10">
+        <DialogContent className="max-w-4xl bg-[#0f1117] border-border">
           <DialogHeader>
             <DialogTitle>Detail PO — {detailPO?.po_number}</DialogTitle>
           </DialogHeader>
